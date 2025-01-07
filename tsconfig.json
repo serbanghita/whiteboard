@@ -10,12 +10,12 @@
     "baseUrl": "src",
     "sourceMap": true,
     "paths": {
-      "@serbanghita-gamedev/geometry/*": ["../../geometry/src/*"],
-      "@serbanghita-gamedev/ecs/*": ["../../ecs/src/*"],
-      "@serbanghita-gamedev/renderer/*": ["../../renderer/src/*"],
-      "@serbanghita-gamedev/matrix/*": ["../../matrix/src/*"],
-      "@serbanghita-gamedev/quadtree/*": ["../../quadtree/src/*"],
-      "@serbanghita-gamedev/tiled/*": ["../../tiled/src/*"]
+      "@serbanghita-gamedev/geometry/*": ["../gamedev/packages/geometry/src/*"],
+      "@serbanghita-gamedev/ecs/*": ["../gamedev/packages/ecs/src/*"],
+      "@serbanghita-gamedev/renderer/*": ["../gamedev/packages/renderer/src/*"],
+      "@serbanghita-gamedev/matrix/*": ["../gamedev/packages/matrix/src/*"],
+      "@serbanghita-gamedev/quadtree/*": ["../gamedev/packages/quadtree/src/*"],
+      "@serbanghita-gamedev/tiled/*": ["../gamedev/packages/tiled/src/*"]
     }
   },
   "include": [

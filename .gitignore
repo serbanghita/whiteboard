@@ -1,6 +1,5 @@
 src/*.js
 src/*.js.map
-src/assets/sprites/*.png
 .idea
 gamedev
 node_modules

@@ -2,14 +2,20 @@
   "name": "@serbanghita-gamedev/demo-whiteboard",
   "version": "1.0.0",
   "description": "Demo of a simple whiteboard",
+  "type": "module",
+  "main": "src/index.ts",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --sourcemap --loader:.png=dataurl --outfile=dist/demo.js",
-    "dev": "esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
+    "dev": "ln -s ../gamedev gamedev && esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
     "test": "echo \"Error: no test specified yet.\""
   },
   "author": "Serban Ghita <serbanghita@gmail.com> (https://ghita.org)",
   "license": "All code is MIT, the assets are copywritten.",
   "devDependencies": {
+    "@serbanghita-gamedev/ecs": "file:../gamedev/packages/ecs",
+    "@serbanghita-gamedev/geometry": "file:../gamedev/packages/geometry",
+    "@serbanghita-gamedev/renderer": "file:../gamedev/packages/renderer",
+    "@serbanghita-gamedev/quadtree": "file:../gamedev/packages/quadtree",
     "@nx/esbuild": "^19.1.1",
     "@nx/eslint": "^19.1.1",
     "@vitest/coverage-istanbul": "^2.1.1",

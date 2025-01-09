@@ -14,6 +14,21 @@ export default class IsRectangle extends Component {
     super(properties);
 
     const center = new Point(properties.x + properties.width / 2, properties.y + properties.height / 2);
-    this.properties.rectangle = new Rectangle(properties.width, properties.height, center);
+    const rectangle = new Rectangle(properties.width, properties.height, center);
+    this.properties= {
+      rectangle,
+      get width() {
+        return rectangle.width;
+      },
+      get height() {
+        return rectangle.height;
+      },
+      get x() {
+        return rectangle.topLeftX;
+      },
+      get y() {
+        return rectangle.topLeftY;
+      }
+    };
   }
 }

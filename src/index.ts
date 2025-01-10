@@ -1,4 +1,4 @@
-import { Point } from "@serbanghita-gamedev/geometry";
+import { Circle, Point, Rectangle } from "@serbanghita-gamedev/geometry";
 import {
   clearCanvas,
   createCanvas,
@@ -14,6 +14,7 @@ import IsRectangle from "./IsRectangle";
 import IsRendered from "./IsRendered";
 import IsPoint from "./IsPoint";
 import RenderingSystem from "./RenderSystem";
+import HasRectangleContext from "./HasRectangleContext";
 
 enum ResizeHandle {
   NONE = 0,
@@ -25,6 +26,8 @@ enum ResizeHandle {
 
 // How many pixels left/right from a border trigger the "drag" cursor detection.
 const RESIZE_HANDLE_AREA_TOLERANCE = 20;
+const RECTANGLE_CONTEXT_AREA_PADDING = 30;
+const RECTANGLE_CONTEXT_CIRCLE_RADIUS = 6;
 
 /**
  * Rendering
@@ -36,7 +39,7 @@ const { $canvas, ctx } = createCanvas("canvas");
  * ECS
  */
 const world = new World();
-world.registerComponents([IsRendered, IsPoint, IsRectangle]);
+world.registerComponents([IsRendered, IsPoint, IsRectangle, HasRectangleContext]);
 
 /**
  * Entities
@@ -45,7 +48,7 @@ const shape1 = world.createEntity("shape1");
 shape1.addComponent(IsRectangle, { x: 10, y: 10, width: 100, height: 200 });
 shape1.addComponent(IsRendered);
 const shape2 = world.createEntity("shape2");
-shape2.addComponent(IsRectangle, { x: 300, y: 20, width: 100, height: 200 });
+shape2.addComponent(IsRectangle, { x: 300, y: 200, width: 100, height: 200 });
 shape1.addComponent(IsRendered);
 
 /**
@@ -65,6 +68,9 @@ let selectedEntityId: string;
 let dragStartX: number;
 let dragStartY: number;
 
+/**
+ * Open/Show the context for an Entity.
+ */
 mousePress((e) => {
   const x = (dragStartX = e.offsetX);
   const y = (dragStartY = e.offsetY);
@@ -78,7 +84,8 @@ mousePress((e) => {
     if (entity) {
       const isRect = entity.getComponent(IsRectangle);
       if (!isRect.properties.rectangle.intersectsWithPoint(point)) {
-        removeContextSelectionForEntity(entity);
+        // removeContextSelectionForEntity(entity);
+        entity.removeComponent(HasRectangleContext);
         selectedEntityId = '';
       }
     }
@@ -89,8 +96,17 @@ mousePress((e) => {
     if (isRect.properties.rectangle.intersectsWithPoint(point)) {
       console.log(point, "intersects with", entityId);
       selectedEntityId = entityId;
-      if (!hasContextSelection(entity)) {
-        createContextSelectionForEntity(entity);
+      const rect = isRect.properties.rectangle;
+      if (!entity.hasComponent(HasRectangleContext)) {
+        // createContextSelectionForEntity(entity);
+        const newRect = new Rectangle(rect.width + RECTANGLE_CONTEXT_AREA_PADDING, rect.height + RECTANGLE_CONTEXT_AREA_PADDING, rect.center);
+        entity.addComponent(HasRectangleContext, {
+          rectangle: newRect,
+          leftConnCircle: new Circle(new Point(newRect.topLeftX, newRect.topLeftY + newRect.height / 2), RECTANGLE_CONTEXT_CIRCLE_RADIUS),
+          rightConnCircle: new Circle(new Point(newRect.topRightX, newRect.topLeftY + newRect.height / 2), RECTANGLE_CONTEXT_CIRCLE_RADIUS),
+          topConnCircle: new Circle(new Point(newRect.topLeftX + newRect.width / 2, newRect.topLeftY), RECTANGLE_CONTEXT_CIRCLE_RADIUS),
+          bottomConnCircle: new Circle(new Point(newRect.bottomLeftX + newRect.width / 2, newRect.bottomLeftY), RECTANGLE_CONTEXT_CIRCLE_RADIUS),
+        });
       }
       break;
     }
@@ -132,44 +148,40 @@ mouseDrag((e) => {
   const deltaX = dragStartX - dragEndX;
   const deltaY = dragStartY - dragEndY;
 
-  // console.log('resizeHandle', resizeHandle);
-  // console.log('deltaX', deltaX, 'deltaY', deltaY);
-
   const rect = isRect.properties.rectangle;
+
+  const contextComp = entity.getComponent(HasRectangleContext);
+  const contextRect = contextComp.properties.rectangle;
 
   if (resizeHandle === ResizeHandle.LEFT) {
     rect.moveCenterBy(-deltaX / 2, 0);
     rect.width += deltaX;
+    contextRect.width += deltaX;
   } else if (resizeHandle === ResizeHandle.RIGHT) {
     rect.moveCenterBy(-deltaX / 2, 0);
     rect.width -= deltaX;
+    contextRect.width -= deltaX;
   } else if (resizeHandle === ResizeHandle.TOP) {
     rect.moveCenterBy(0, -deltaY / 2);
     rect.height += deltaY;
+    contextRect.height += deltaY;
   } else if (resizeHandle === ResizeHandle.BOTTOM) {
     rect.moveCenterBy(0, -deltaY / 2);
     rect.height -= deltaY;
+    contextRect.height -= deltaY;
   }
 
-  // isRect.properties.x = isRect.properties.rectangle.topLeftX;
-  // isRect.properties.y = isRect.properties.rectangle.topLeftY;
+  contextComp.properties.leftConnCircle.center.x = contextRect.topLeftX;
+  contextComp.properties.leftConnCircle.center.y = contextRect.topLeftY + contextRect.height / 2;
+  contextComp.properties.rightConnCircle.center.x = contextRect.topRightX;
+  contextComp.properties.rightConnCircle.center.y = contextRect.topLeftY + contextRect.height / 2;
+  contextComp.properties.topConnCircle.center.x = contextRect.topLeftX + contextRect.width / 2;
+  contextComp.properties.topConnCircle.center.y = contextRect.topLeftY;
+  contextComp.properties.bottomConnCircle.center.x = contextRect.bottomLeftX + contextRect.width / 2;
+  contextComp.properties.bottomConnCircle.center.y = contextRect.bottomLeftY;
 
   dragStartX = dragEndX;
   dragStartY = dragEndY;
-
-  //
-  //
-  // rect.width -= deltaX;
-  // rect.height -= deltaY;
-  //
-  // isRect.properties.width = rect.width;
-  // isRect.properties.height = rect.height;
-  //
-  // isRect.properties.rectangle.moveCenterBy(-deltaX, -deltaY);
-  // isRect.properties.x = isRect.properties.rectangle.topLeftX;
-  // isRect.properties.y = isRect.properties.rectangle.topLeftY;
-
-  updateContextSelectionForEntity(entity);
 
 });
 
@@ -192,6 +204,22 @@ mouseMove((e) => {
   const isRect = entity.getComponent(IsRectangle);
   const point = new Point(x, y);
   const rect = isRect.properties.rectangle;
+
+  // If not in the padded area of the rect, don't bother to check
+  if (!rect.intersectsWithPoint(point, RESIZE_HANDLE_AREA_TOLERANCE)) {
+    updateCanvasCursor('auto');
+    return;
+  }
+
+  if (entity.hasComponent(HasRectangleContext)) {
+    const contextComp = entity.getComponent(HasRectangleContext);
+    if (contextComp.properties.rightConnCircle.intersectsWithPoint(point)) {
+      console.log('rightConnPoint');
+      updateCanvasCursor('cell');
+      return;
+    }
+  }
+
 
   if (point.x >= rect.topLeftX - RESIZE_HANDLE_AREA_TOLERANCE && point.x <= rect.topLeftX + RESIZE_HANDLE_AREA_TOLERANCE) {
     resizeHandle = ResizeHandle.LEFT;
@@ -227,7 +255,7 @@ mouseDrag((e) => {
   const dragEndX = e.offsetX;
   const dragEndY = e.offsetY;
 
-  console.log("dragging", dragEndX, dragEndY);
+  console.log("dragging");
 
   const entity = world.getEntity(selectedEntityId);
   if (entity) {
@@ -235,25 +263,43 @@ mouseDrag((e) => {
     const deltaX = dragStartX - dragEndX;
     const deltaY = dragStartY - dragEndY;
 
-    isRect.properties.rectangle.moveCenterBy(-deltaX, -deltaY);
+    const rect = isRect.properties.rectangle;
+    rect.moveCenterBy(-deltaX, -deltaY);
 
-    // isRect.properties.x = isRect.properties.rectangle.topLeftX;
-    // isRect.properties.y = isRect.properties.rectangle.topLeftY;
+    // Update the context as well.
+    if (entity.hasComponent(HasRectangleContext)) {
+      const contextComp = entity.getComponent(HasRectangleContext);
+      const contextCompRect = contextComp.properties.rectangle;
 
+      contextComp.properties.leftConnCircle.center.x = contextCompRect.topLeftX;
+      contextComp.properties.leftConnCircle.center.y = contextCompRect.topLeftY + contextCompRect.height / 2;
+      contextComp.properties.rightConnCircle.center.x = contextCompRect.topRightX;
+      contextComp.properties.rightConnCircle.center.y = contextCompRect.topLeftY + contextCompRect.height / 2;
+      contextComp.properties.topConnCircle.center.x = contextCompRect.topLeftX + contextCompRect.width / 2;
+      contextComp.properties.topConnCircle.center.y = contextCompRect.topLeftY;
+      contextComp.properties.bottomConnCircle.center.x = contextCompRect.bottomLeftX + contextCompRect.width / 2;
+      contextComp.properties.bottomConnCircle.center.y = contextCompRect.bottomLeftY;
+    }
+
+    // Reset drag.
     dragStartX = dragEndX;
     dragStartY = dragEndY;
-
-    updateContextSelectionForEntity(entity);
   }
 });
 
 mouseRelease((e) => {
   console.log("mouseRelease");
   isMouseSelecting = false;
-  isMouseResizing = false;
-  resizeHandle = ResizeHandle.NONE;
+  if (isMouseResizing) {
+    updateCanvasCursor('auto');
+    resizeHandle = ResizeHandle.NONE;
+    isMouseResizing = false;
+  }
+
   dragStartX = 0;
   dragStartY = 0;
 });
 
 world.start();
+
+(window as any)['world'] = world;

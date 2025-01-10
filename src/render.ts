@@ -1,5 +1,6 @@
 import { Entity } from "@serbanghita-gamedev/ecs";
 import IsRectangle from "./IsRectangle";
+import { Rectangle } from "@serbanghita-gamedev/geometry";
 
 let $wrapper: HTMLDivElement;
 let $canvas: HTMLCanvasElement;
@@ -82,17 +83,31 @@ export function hasContextSelection(entity: Entity) {
 export function createContextSelectionForEntity(entity: Entity) {
 
   const isRect = entity.getComponent(IsRectangle);
+  const rect = isRect.properties.rectangle;
+
   const $div = document.createElement('div');
   $div.id = `contextSelection-entity-${entity.id}`;
-  $div.style.width = `${isRect.properties.width}px`;
-  $div.style.height = `${isRect.properties.height}px`;
+  $div.style.width = `${rect.width}px`;
+  $div.style.height = `${rect.height}px`;
   $div.style.border = '2px solid blue';
   $div.style.position = 'absolute';
-  $div.style.left = `${isRect.properties.rectangle.topLeftX-1}px`;
-  $div.style.top = `${isRect.properties.rectangle.topLeftY-1}px`;
+  $div.style.left = `${rect.topLeftX-1}px`;
+  $div.style.top = `${rect.topLeftY-1}px`;
   $div.style.pointerEvents = 'none';
 
   $wrapper.appendChild($div);
+}
+
+function createConnectionPointsForRect(rect: Rectangle) {
+  // Left
+  const $left = document.createElement('div');
+  $left.className = 'entity-connection-point';
+  $left.style.position = 'absolute';
+  $left.style
+  // Right
+
+  // Top
+  // Bottom
 }
 
 export function updateContextSelectionForEntity(entity: Entity) {

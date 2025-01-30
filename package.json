@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --sourcemap --loader:.png=dataurl --outfile=dist/demo.js",
-    "dev": "ln -s ../gamedev gamedev && esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
+    "dev": "([ ! -L \"gamedev\" ] && ln -s ../gamedev gamedev || echo \"Link to gamedev already exists...\") && esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
     "test": "echo \"Error: no test specified yet.\""
   },
   "author": "Serban Ghita <serbanghita@gmail.com> (https://ghita.org)",

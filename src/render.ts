@@ -1,16 +1,20 @@
 import { Entity } from "@serbanghita-gamedev/ecs";
-import IsRectangle from "./IsRectangle";
+import RectangleComponent from "./component/RectangleComponent";
 import { Rectangle } from "@serbanghita-gamedev/geometry";
 
 let $wrapper: HTMLDivElement;
 let $canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 
+export function getPixelRatio() {
+  return window.devicePixelRatio || 1;
+}
+
 export function createWrapper(id: string) {
   $wrapper = document.createElement('div');
   $wrapper.id = id;
-  $wrapper.style.width = `640px`;
-  $wrapper.style.height = `480px`;
+  $wrapper.style.width = `${640 * getPixelRatio()}px`;
+  $wrapper.style.height = `${480 * getPixelRatio()}px`;
   $wrapper.style.position = 'relative';
   $wrapper.style.border = "1px solid dotted";
 
@@ -22,8 +26,8 @@ export function createWrapper(id: string) {
 export function createCanvas(id: string) {
   $canvas = document.createElement('canvas') as HTMLCanvasElement;
   $canvas.id = id;
-  $canvas.width = 640;
-  $canvas.height = 480;
+  $canvas.width = 640 * getPixelRatio();
+  $canvas.height = 480 * getPixelRatio();
   $canvas.style.border = "1px solid black";
   $canvas.style.background = "white";
 
@@ -39,7 +43,7 @@ export function createCanvas(id: string) {
 }
 
 export function clearCanvas() {
-  ctx.clearRect(0, 0, 640, 480);
+  ctx.clearRect(0, 0, 640 * getPixelRatio(), 480 * getPixelRatio());
 }
 
 let mouseDragController: AbortController;
@@ -82,7 +86,7 @@ export function hasContextSelection(entity: Entity) {
 
 export function createContextSelectionForEntity(entity: Entity) {
 
-  const isRect = entity.getComponent(IsRectangle);
+  const isRect = entity.getComponent(RectangleComponent);
   const rect = isRect.properties.rectangle;
 
   const $div = document.createElement('div');
@@ -111,7 +115,7 @@ function createConnectionPointsForRect(rect: Rectangle) {
 }
 
 export function updateContextSelectionForEntity(entity: Entity) {
-  const isRect = entity.getComponent(IsRectangle);
+  const isRect = entity.getComponent(RectangleComponent);
   const rect = isRect.properties.rectangle;
 
   const $div = document.getElementById(`contextSelection-entity-${entity.id}`) as HTMLDivElement;

@@ -15,6 +15,12 @@ import IsRendered from "./component/IsRendered";
 import RenderingSystem from "./system/RenderSystem";
 import MouseComponent from "./component/MouseComponent";
 import SelectionRectangleComponent from "./component/SelectionRectangleComponent";
+import SelectionSystem from "./system/SelectionSystem";
+import MousePressSystem from "./system/MousePressSystem";
+import IsMouseOver from "./component/IsMouseOver";
+import MouseOverSystem from "./system/MouseOverSystem";
+import IsMousePressed from "./component/IsMousePressed";
+import MouseOutSystem from "./system/MouseOutSystem";
 
 enum ResizeHandle {
   NONE = 0,
@@ -39,7 +45,7 @@ const { $canvas, ctx } = createCanvas("canvas");
  * ECS
  */
 const world = new World();
-world.registerComponents([IsRendered, MouseComponent, RectangleComponent, SelectionRectangleComponent]);
+world.registerComponents([IsRendered, IsMouseOver, IsMousePressed, MouseComponent, RectangleComponent, SelectionRectangleComponent]);
 
 /**
  * Entities
@@ -51,7 +57,8 @@ world.registerComponents([IsRendered, MouseComponent, RectangleComponent, Select
  * These entities are persistent as they represent the core of the app.
  */
 const cursor = world.createEntity('cursor');
-cursor.addComponent(MouseComponent, {point: new Point(0, 0)});
+const cursorPoint = new Point(0, 0);
+cursor.addComponent(MouseComponent, {point: cursorPoint});
 
 const selection = world.createEntity('selection');
 selection.addComponent(SelectionRectangleComponent);
@@ -72,11 +79,19 @@ shape1.addComponent(IsRendered);
 /**
  * Queries
  */
-const allRectanglesQuery = world.createQuery("allRectanglesQuery", { all: [RectangleComponent] });
+const allRectanglesQuery = world.createQuery("q1", { all: [RectangleComponent] });
+const allRectanglesWithoutSelectionRectangleQuery = world.createQuery("q2", { all: [RectangleComponent], none: [SelectionRectangleComponent] });
+const allRectanglesForMouseOverQuery = world.createQuery("q3", { all: [RectangleComponent], none: [IsMouseOver] });
+const allRectanglesForMouseOutQuery = world.createQuery("q4", { all: [RectangleComponent, IsMouseOver] });
+const selectionQuery = world.createQuery("q5", {all: [SelectionRectangleComponent] });
 /**
  * Systems
  */
 world.createSystem(RenderingSystem, allRectanglesQuery, ctx);
+world.createSystem(MousePressSystem, allRectanglesWithoutSelectionRectangleQuery);
+world.createSystem(MouseOverSystem, allRectanglesForMouseOverQuery);
+world.createSystem(MouseOutSystem, allRectanglesForMouseOutQuery);
+world.createSystem(SelectionSystem, selectionQuery);
 
 
 // let isMouseSelecting = false;
@@ -102,14 +117,16 @@ mousePress((e) => {
   // const x = (dragStartX = e.offsetX);
   // const y = (dragStartY = e.offsetY);
   const mouse = cursor.getComponent(MouseComponent);
-  mouse.click(true);
-  console.log("mousePress", mouse.x, mouse.y, mouse.isClicking);
+  if (!cursor.hasComponent(IsMousePressed)) {
+    cursor.addComponent(IsMousePressed);
+  }
+  console.log("mousePress", mouse.x, mouse.y);
 });
 
 mouseRelease((e) => {
   const mouse = cursor.getComponent(MouseComponent)
-  mouse.click(false);
-  console.log("mouseRelease", mouse.x, mouse.y, mouse.isClicking);
+  cursor.removeComponent(IsMousePressed);
+  console.log("mouseRelease", mouse.x, mouse.y);
 });
 
 // mousePress((e) => {

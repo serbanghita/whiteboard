@@ -7,7 +7,7 @@ export interface MouseComponentInitProps {
 
 export default class MouseComponent extends Component {
 
-  private readonly point: Point;
+  public readonly point: Point;
   public isClicking: boolean = false;
 
   constructor(public properties: MouseComponentInitProps) {
@@ -27,9 +27,5 @@ export default class MouseComponent extends Component {
 
   public get y() {
     return this.point.y;
-  }
-
-  public click(isClicking: boolean) {
-    this.isClicking = isClicking;
   }
 }

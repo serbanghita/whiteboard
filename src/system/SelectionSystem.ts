@@ -1,30 +1,60 @@
-import { Query, System, World } from "../../../gamedev/packages/ecs";
+import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "../component/RectangleComponent";
-import { Point } from "../../../gamedev/packages/geometry";
+import { Point } from "@serbanghita-gamedev/geometry";
 import { updateCanvasCursor } from "../render";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
+import MouseComponent from "../component/MouseComponent";
 
-export default class SelectionCursorSystem extends System {
+export default class SelectionSystem extends System {
   public constructor(
     public world: World,
-    public query: Query,
-    public cursorPoint: Point
+    public query: Query
   ) {
     super(world, query);
   }
 
   public update(now: number): void {
+    const cursor = this.world.getEntity('cursor') as Entity;
+    const mouseComp = cursor.getComponent(MouseComponent);
+
     this.query.execute().forEach((entity) => {
-      const isSelectionComp = entity.getComponent(SelectionRectangleComponent);
-      if (!isSelectionComp) {
+      const selectionComp = entity.getComponent(SelectionRectangleComponent);
+
+      // If selection is empty, exit.
+      if (selectionComp.entities.size === 0) {
+        if (selectionComp.isDirty) {
+          if (entity.hasComponent(RectangleComponent)) {
+            entity.removeComponent(RectangleComponent);
+          }
+          selectionComp.isDirty = false;
+        }
         return;
       }
-      const rectComp = entity.getComponent(RectangleComponent);
-      const rect = rectComp.properties.rectangle;
+
+      // Compute the new RectangleComponent.
+      if (selectionComp.isDirty) {
+        if (entity.hasComponent(RectangleComponent)) {
+          entity.removeComponent(RectangleComponent);
+        }
+
+        // Get the first entity (for now).
+        // @todo: Add support to draw selection over multiple entities.
+        const [, selectedEntity] = selectionComp.entities.entries().next().value as [string, Entity];
+        const selectedEntityRectComp = selectedEntity.getComponent(RectangleComponent);
+
+        // Add updated "Rectangle" to the "Selection".
+        entity.addComponent(RectangleComponent, {
+          x: selectedEntityRectComp.center.x, y: selectedEntityRectComp.center.y,
+          width: selectedEntityRectComp.width + 16, height: selectedEntityRectComp.height + 16
+        });
+
+        selectionComp.isDirty = false;
+      }
+
+      let selectionRectComp = entity.getComponent(RectangleComponent);
 
       // If not in the padded area of the rect, don't bother to check
-      if (!rect.intersectsWithPoint(this.cursorPoint)) {
-        updateCanvasCursor('auto');
+      if (!selectionRectComp.rectangle.intersectsWithPoint(mouseComp.point)) {
         return;
       }
 

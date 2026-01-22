@@ -1,5 +1,5 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
-import { Circle, Point, Rectangle } from "@serbanghita-gamedev/geometry";
+import { Circle, Point, Rectangle } from "../geometry";
 import RectangleComponent from "../component/RectangleComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import IsMouseOver from "../component/IsMouseOver";

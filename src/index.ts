@@ -1,6 +1,5 @@
-import { Circle, Point, Rectangle } from "@serbanghita-gamedev/geometry";
+import { Circle, Point, Rectangle } from "./geometry";
 import {
-  clearCanvas,
   createCanvas,
   createContextSelectionForEntity,
   createWrapper, hasContextSelection,
@@ -9,6 +8,7 @@ import {
   mouseRelease, removeContextSelectionForEntity, updateCanvasCursor,
   updateContextSelectionForEntity
 } from "./render";
+import { WebGLRenderer } from "./renderer";
 import { World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "./component/RectangleComponent";
 import IsRendered from "./component/IsRendered";
@@ -21,6 +21,7 @@ import IsMouseOver from "./component/IsMouseOver";
 import MouseOverSystem from "./system/MouseOverSystem";
 import IsMousePressed from "./component/IsMousePressed";
 import MouseOutSystem from "./system/MouseOutSystem";
+import DragSystem from "./system/DragSystem";
 
 enum ResizeHandle {
   NONE = 0,
@@ -39,7 +40,8 @@ const RECTANGLE_CONTEXT_CIRCLE_RADIUS = 6;
  * Rendering
  */
 const $wrapper = createWrapper('canvas-wrapper');
-const { $canvas, ctx } = createCanvas("canvas");
+const { $canvas, gl } = createCanvas("canvas");
+const renderer = new WebGLRenderer(gl);
 
 /**
  * ECS
@@ -87,8 +89,9 @@ const selectionQuery = world.createQuery("q5", {all: [SelectionRectangleComponen
 /**
  * Systems
  */
-world.createSystem(RenderingSystem, allRectanglesQuery, ctx);
+world.createSystem(RenderingSystem, allRectanglesQuery, renderer);
 world.createSystem(MousePressSystem, allRectanglesWithoutSelectionRectangleQuery);
+world.createSystem(DragSystem, selectionQuery);
 world.createSystem(MouseOverSystem, allRectanglesForMouseOverQuery);
 world.createSystem(MouseOutSystem, allRectanglesForMouseOutQuery);
 world.createSystem(SelectionSystem, selectionQuery);

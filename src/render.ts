@@ -1,10 +1,10 @@
 import { Entity } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "./component/RectangleComponent";
-import { Rectangle } from "@serbanghita-gamedev/geometry";
+import { Rectangle } from "./geometry";
 
 let $wrapper: HTMLDivElement;
 let $canvas: HTMLCanvasElement;
-let ctx: CanvasRenderingContext2D;
+let gl: WebGLRenderingContext;
 
 export function getPixelRatio() {
   return window.devicePixelRatio || 1;
@@ -31,7 +31,15 @@ export function createCanvas(id: string) {
   $canvas.style.border = "1px solid black";
   $canvas.style.background = "white";
 
-  ctx = $canvas.getContext("2d") as CanvasRenderingContext2D;
+  const glContext = $canvas.getContext("webgl");
+  if (!glContext) {
+    throw new Error('WebGL is not supported in this browser.');
+  }
+  gl = glContext;
+
+  // Set up WebGL viewport and clear color (white background)
+  gl.viewport(0, 0, $canvas.width, $canvas.height);
+  gl.clearColor(1.0, 1.0, 1.0, 1.0);
 
   if (!$wrapper) {
     throw new Error('Wrapper DOM element was not created.');
@@ -39,11 +47,15 @@ export function createCanvas(id: string) {
 
   $wrapper.appendChild($canvas);
 
-  return { $canvas, ctx };
+  return { $canvas, gl };
 }
 
 export function clearCanvas() {
-  ctx.clearRect(0, 0, 640 * getPixelRatio(), 480 * getPixelRatio());
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+
+export function getGL(): WebGLRenderingContext {
+  return gl;
 }
 
 let mouseDragController: AbortController;
@@ -87,7 +99,7 @@ export function hasContextSelection(entity: Entity) {
 export function createContextSelectionForEntity(entity: Entity) {
 
   const isRect = entity.getComponent(RectangleComponent);
-  const rect = isRect.properties.rectangle;
+  const rect = isRect.rectangle;
 
   const $div = document.createElement('div');
   $div.id = `contextSelection-entity-${entity.id}`;
@@ -116,7 +128,7 @@ function createConnectionPointsForRect(rect: Rectangle) {
 
 export function updateContextSelectionForEntity(entity: Entity) {
   const isRect = entity.getComponent(RectangleComponent);
-  const rect = isRect.properties.rectangle;
+  const rect = isRect.rectangle;
 
   const $div = document.getElementById(`contextSelection-entity-${entity.id}`) as HTMLDivElement;
   $div.style.left = `${rect.topLeftX-1}px`;

@@ -1,0 +1,15 @@
+# plan: add-undo-redo-state
+
+## State Stack Design
+- Define Operation interface: { type, entityId, before, after }
+- Maximum 10 operations (configurable?)
+- Redo stack cleared on new operation
+
+## Integration with ECS
+- Create StateSystem that listens for changes
+- Serialize affected components on mutation
+- Command pattern vs snapshot approach
+
+## User Interaction
+- Keyboard shortcuts: Ctrl+Z (undo), Ctrl+Shift+Z (redo)
+- UI buttons (optional)

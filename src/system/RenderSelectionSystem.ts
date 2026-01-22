@@ -1,6 +1,5 @@
 import { System } from "@serbanghita-gamedev/ecs";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
-import { circle, rectangle } from "@serbanghita-gamedev/renderer";
 
 export default class RenderSelectionSystem extends System {
 

@@ -6,29 +6,30 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --sourcemap --loader:.png=dataurl --outfile=dist/demo.js",
-    "dev": "([ ! -L \"gamedev\" ] && ln -s ../gamedev gamedev || echo \"Link to gamedev already exists...\") && esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
-    "test": "echo \"Error: no test specified yet.\""
+    "dev": "esbuild src/index.ts --bundle --sourcemap --watch --loader:.png=dataurl --outfile=dist/demo.js --servedir=dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "author": "Serban Ghita <serbanghita@gmail.com> (https://ghita.org)",
   "license": "All code is MIT, the assets are copywritten.",
   "devDependencies": {
-    "@serbanghita-gamedev/ecs": "file:../gamedev/packages/ecs",
-    "@serbanghita-gamedev/geometry": "file:../gamedev/packages/geometry",
-    "@serbanghita-gamedev/renderer": "file:../gamedev/packages/renderer",
-    "@serbanghita-gamedev/quadtree": "file:../gamedev/packages/quadtree",
+    "@eslint/js": "^9.4.0",
     "@nx/esbuild": "^19.1.1",
     "@nx/eslint": "^19.1.1",
+    "@serbanghita-gamedev/ecs": "github:serbanghita/ecs#main",
+    "@serbanghita-gamedev/quadtree": "github:serbanghita/quadtree#main",
+    "@types/eslint__js": "^8.42.3",
     "@vitest/coverage-istanbul": "^2.1.1",
-    "vite-tsconfig-paths": "^4.3.2",
     "esbuild": "^0.19.2",
+    "eslint": "^9.4.0",
     "jest": "^29.4.1",
+    "jsdom": "^27.4.0",
     "nx": "19.1.1",
     "prettier": "3.3.3",
-    "vitest": "^2.1.1",
-    "typescript": "^5.4.5",
-    "eslint": "^9.4.0",
-    "@types/eslint__js": "^8.42.3",
-    "@eslint/js": "^9.4.0",
-    "typescript-eslint": "^8.10.0"
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.10.0",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^2.1.1"
   }
 }

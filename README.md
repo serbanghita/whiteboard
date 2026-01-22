@@ -9,9 +9,3 @@ Features:
 - [x] Geometric shapes can be connected by `lines`.
 - [x] Text add/edit inside and outside the geometric shapes.
 - [x] Save/Load state from `localStorage`.
-
-
-## Development
-
-1. git clone https://github.com/serbanghita/gamedev in a `gamedev` folder outside this project.
-2. `npm run dev`

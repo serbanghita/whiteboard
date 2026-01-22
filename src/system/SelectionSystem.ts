@@ -1,6 +1,6 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "../component/RectangleComponent";
-import { Point } from "@serbanghita-gamedev/geometry";
+import { Point } from "../geometry";
 import { updateCanvasCursor } from "../render";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import MouseComponent from "../component/MouseComponent";

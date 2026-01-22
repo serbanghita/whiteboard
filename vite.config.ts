@@ -5,6 +5,10 @@ import * as path from "node:path";
 export default defineConfig({
     plugins: [tsconfigPaths()],
     test: {
+        include: ['src/**/__tests__/**/*.test.ts'],
+        environment: 'jsdom',
+        globals: true,
+        setupFiles: ['./src/__mocks__/webgl.ts'],
         alias: {
             '@serbanghita-gamedev/assets/': path.join(__dirname,  'gamedev/packages/assets/'),
             '@serbanghita-gamedev/geometry/': path.join(__dirname,  'gamedev/packages/geometry/'),

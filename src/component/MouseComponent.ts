@@ -1,45 +1,51 @@
 import { Component } from "@serbanghita-gamedev/ecs";
-import { Point } from "../geometry";
 
-export interface MouseComponentInitProps {
-  point: Point;
+export interface MouseComponentProps {
+  x: number;
+  y: number;
 }
 
-export default class MouseComponent extends Component {
-
-  public readonly point: Point;
+export default class MouseComponent extends Component<MouseComponentProps> {
   public isClicking: boolean = false;
   public prevX: number = 0;
   public prevY: number = 0;
 
-  constructor(public properties: MouseComponentInitProps) {
+  constructor(public properties: MouseComponentProps = { x: 0, y: 0 }) {
     super(properties);
-
-    this.point = properties.point;
-    this.prevX = properties.point.x;
-    this.prevY = properties.point.y;
+    this.prevX = properties.x;
+    this.prevY = properties.y;
   }
 
-  public setXY(x: number, y: number) {
-    this.prevX = this.point.x;
-    this.prevY = this.point.y;
-    this.point.x = x;
-    this.point.y = y;
+  public setXY(x: number, y: number): void {
+    this.prevX = this.properties.x;
+    this.prevY = this.properties.y;
+    this.properties.x = x;
+    this.properties.y = y;
   }
 
-  public get x() {
-    return this.point.x;
+  public get x(): number {
+    return this.properties.x;
   }
 
-  public get y() {
-    return this.point.y;
+  public set x(value: number) {
+    this.prevX = this.properties.x;
+    this.properties.x = value;
   }
 
-  public get deltaX() {
-    return this.point.x - this.prevX;
+  public get y(): number {
+    return this.properties.y;
   }
 
-  public get deltaY() {
-    return this.point.y - this.prevY;
+  public set y(value: number) {
+    this.prevY = this.properties.y;
+    this.properties.y = value;
+  }
+
+  public get deltaX(): number {
+    return this.properties.x - this.prevX;
+  }
+
+  public get deltaY(): number {
+    return this.properties.y - this.prevY;
   }
 }

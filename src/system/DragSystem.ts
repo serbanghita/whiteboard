@@ -49,7 +49,8 @@ export default class DragSystem extends System {
     selectionComp.entities.forEach((entity) => {
       if (entity.hasComponent(RectangleComponent)) {
         const rectComp = entity.getComponent(RectangleComponent);
-        rectComp.rectangle.moveCenterBy(deltaX, deltaY);
+        rectComp.x += deltaX;
+        rectComp.y += deltaY;
       }
     });
 

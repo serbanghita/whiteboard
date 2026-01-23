@@ -1,9 +1,8 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
-import { Circle, Point, Rectangle } from "../geometry";
 import RectangleComponent from "../component/RectangleComponent";
-import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import IsMouseOver from "../component/IsMouseOver";
 import MouseComponent from "../component/MouseComponent";
+import { pointInRectangle } from "../collision";
 
 export default class MouseOutSystem extends System {
   public constructor(
@@ -21,7 +20,7 @@ export default class MouseOutSystem extends System {
     this.query.execute().forEach((entity) => {
       const rectComp = entity.getComponent(RectangleComponent);
 
-      if (!rectComp.rectangle.intersectsWithPoint(mouseComp.point)) {
+      if (!pointInRectangle(mouseComp.x, mouseComp.y, rectComp.x, rectComp.y, rectComp.width, rectComp.height)) {
         entity.removeComponent(IsMouseOver);
       }
     });

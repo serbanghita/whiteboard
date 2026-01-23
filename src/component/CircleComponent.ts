@@ -1,17 +1,16 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
-export interface RectangleComponentProps {
+export interface CircleComponentProps {
   x: number;
   y: number;
-  width: number;
-  height: number;
+  radius: number;
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
 }
 
-export default class RectangleComponent extends Component<RectangleComponentProps> {
-  constructor(public properties: RectangleComponentProps) {
+export default class CircleComponent extends Component<CircleComponentProps> {
+  constructor(public properties: CircleComponentProps) {
     super(properties);
   }
 
@@ -31,20 +30,12 @@ export default class RectangleComponent extends Component<RectangleComponentProp
     this.properties.y = value;
   }
 
-  public get width(): number {
-    return this.properties.width;
+  public get radius(): number {
+    return this.properties.radius;
   }
 
-  public set width(value: number) {
-    this.properties.width = value;
-  }
-
-  public get height(): number {
-    return this.properties.height;
-  }
-
-  public set height(value: number) {
-    this.properties.height = value;
+  public set radius(value: number) {
+    this.properties.radius = value;
   }
 
   public get fillColor(): string | undefined {
@@ -69,22 +60,5 @@ export default class RectangleComponent extends Component<RectangleComponentProp
 
   public set strokeWidth(value: number | undefined) {
     this.properties.strokeWidth = value;
-  }
-
-  // Computed properties for convenience
-  public get centerX(): number {
-    return this.properties.x + this.properties.width / 2;
-  }
-
-  public get centerY(): number {
-    return this.properties.y + this.properties.height / 2;
-  }
-
-  public get right(): number {
-    return this.properties.x + this.properties.width;
-  }
-
-  public get bottom(): number {
-    return this.properties.y + this.properties.height;
   }
 }

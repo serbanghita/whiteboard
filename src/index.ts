@@ -1,40 +1,40 @@
-import { Circle, Point, Rectangle } from "./geometry";
 import {
   createCanvas,
-  createContextSelectionForEntity,
-  createWrapper, hasContextSelection,
-  mouseDrag, mouseMove, mouseOver,
+  createWrapper,
+  mouseMove,
   mousePress,
-  mouseRelease, removeContextSelectionForEntity, updateCanvasCursor,
-  updateContextSelectionForEntity
+  mouseRelease,
+  initFloatingMenu,
+  initKeyboardEvents
 } from "./render";
 import { WebGLRenderer } from "./renderer";
 import { World } from "@serbanghita-gamedev/ecs";
+
+// Components
 import RectangleComponent from "./component/RectangleComponent";
+import CircleComponent from "./component/CircleComponent";
+import LineComponent from "./component/LineComponent";
 import IsRendered from "./component/IsRendered";
-import RenderingSystem from "./system/RenderSystem";
+import IsSelected from "./component/IsSelected";
 import MouseComponent from "./component/MouseComponent";
 import SelectionRectangleComponent from "./component/SelectionRectangleComponent";
+import IsMouseOver from "./component/IsMouseOver";
+import IsMousePressed from "./component/IsMousePressed";
+import ToolStateComponent from "./component/ToolStateComponent";
+import DrawnOnLayer from "./component/DrawnOnLayer";
+import Layer from "./component/Layer";
+
+// Systems
+import RenderingSystem from "./system/RenderSystem";
 import SelectionSystem from "./system/SelectionSystem";
 import MousePressSystem from "./system/MousePressSystem";
-import IsMouseOver from "./component/IsMouseOver";
 import MouseOverSystem from "./system/MouseOverSystem";
-import IsMousePressed from "./component/IsMousePressed";
 import MouseOutSystem from "./system/MouseOutSystem";
 import DragSystem from "./system/DragSystem";
-
-enum ResizeHandle {
-  NONE = 0,
-  TOP = 1,
-  BOTTOM = 2,
-  LEFT = 3,
-  RIGHT = 4,
-}
-
-// How many pixels left/right from a border trigger the "drag" cursor detection.
-const RESIZE_HANDLE_AREA_TOLERANCE = 20;
-const RECTANGLE_CONTEXT_AREA_PADDING = 30;
-const RECTANGLE_CONTEXT_CIRCLE_RADIUS = 6;
+import ToolStateSystem from "./system/ToolStateSystem";
+import RectangleDrawSystem from "./system/RectangleDrawSystem";
+import CircleDrawSystem from "./system/CircleDrawSystem";
+import LineDrawSystem from "./system/LineDrawSystem";
 
 /**
  * Rendering
@@ -44,224 +44,124 @@ const { $canvas, gl } = createCanvas("canvas");
 const renderer = new WebGLRenderer(gl);
 
 /**
- * ECS
+ * ECS World
  */
 const world = new World();
-world.registerComponents([IsRendered, IsMouseOver, IsMousePressed, MouseComponent, RectangleComponent, SelectionRectangleComponent]);
+
+// Register all components
+world.registerComponents([
+  // Existing
+  IsRendered,
+  IsMouseOver,
+  IsMousePressed,
+  MouseComponent,
+  RectangleComponent,
+  SelectionRectangleComponent,
+  // New
+  CircleComponent,
+  LineComponent,
+  IsSelected,
+  ToolStateComponent,
+  DrawnOnLayer,
+  Layer
+]);
 
 /**
- * Entities
- */
-
-/**
- * Fixed entities.
+ * Fixed Entities
  * ---------------
  * These entities are persistent as they represent the core of the app.
  */
-const cursor = world.createEntity('cursor');
-const cursorPoint = new Point(0, 0);
-cursor.addComponent(MouseComponent, {point: cursorPoint});
 
+// Cursor entity - tracks mouse position
+const cursor = world.createEntity('cursor');
+cursor.addComponent(MouseComponent, { x: 0, y: 0 });
+
+// Selection entity - manages selected entities
 const selection = world.createEntity('selection');
 selection.addComponent(SelectionRectangleComponent);
 
+// Tool entity - manages current tool state
+const tool = world.createEntity('tool');
+tool.addComponent(ToolStateComponent);
+
+// Default layer entity
+const defaultLayer = world.createEntity('default-layer');
+defaultLayer.addComponent(Layer, { id: 'default-layer', zIndex: 0, visible: true });
+
 /**
- * Dynamic entities
+ * Demo Entities
  * ---------------
- * These entities are created on the fly by the user.
+ * These are sample shapes for testing. Remove in production.
  */
 const shape1 = world.createEntity("shape1");
-shape1.addComponent(RectangleComponent, { x: 120, y: 120, width: 100, height: 200 });
+shape1.addComponent(RectangleComponent, { x: 120, y: 120, width: 100, height: 200, strokeColor: 'black' });
 shape1.addComponent(IsRendered);
 
 const shape2 = world.createEntity("shape2");
-shape2.addComponent(RectangleComponent, { x: 300, y: 200, width: 100, height: 100 });
-shape1.addComponent(IsRendered);
+shape2.addComponent(RectangleComponent, { x: 300, y: 200, width: 100, height: 100, strokeColor: 'black' });
+shape2.addComponent(IsRendered);
 
 /**
  * Queries
  */
-const allRectanglesQuery = world.createQuery("q1", { all: [RectangleComponent] });
-const allRectanglesWithoutSelectionRectangleQuery = world.createQuery("q2", { all: [RectangleComponent], none: [SelectionRectangleComponent] });
-const allRectanglesForMouseOverQuery = world.createQuery("q3", { all: [RectangleComponent], none: [IsMouseOver] });
-const allRectanglesForMouseOutQuery = world.createQuery("q4", { all: [RectangleComponent, IsMouseOver] });
-const selectionQuery = world.createQuery("q5", {all: [SelectionRectangleComponent] });
+const allRenderableQuery = world.createQuery("renderables", { all: [IsRendered] });
+const allRectanglesWithoutSelectionQuery = world.createQuery("rectNoSel", { all: [RectangleComponent], none: [SelectionRectangleComponent] });
+const allRectanglesForMouseOverQuery = world.createQuery("rectMouseOver", { all: [RectangleComponent], none: [IsMouseOver] });
+const allRectanglesForMouseOutQuery = world.createQuery("rectMouseOut", { all: [RectangleComponent, IsMouseOver] });
+const selectionQuery = world.createQuery("selection", { all: [SelectionRectangleComponent] });
+const toolQuery = world.createQuery("tool", { all: [ToolStateComponent] });
+
 /**
  * Systems
+ * Order matters - drawing systems should run before render
  */
-world.createSystem(RenderingSystem, allRectanglesQuery, renderer);
-world.createSystem(MousePressSystem, allRectanglesWithoutSelectionRectangleQuery);
+
+// Tool state management
+world.createSystem(ToolStateSystem, toolQuery);
+
+// Drawing systems - create new entities
+world.createSystem(RectangleDrawSystem, toolQuery);
+world.createSystem(CircleDrawSystem, toolQuery);
+world.createSystem(LineDrawSystem, toolQuery);
+
+// Mouse interaction systems
+world.createSystem(MousePressSystem, allRectanglesWithoutSelectionQuery);
 world.createSystem(DragSystem, selectionQuery);
 world.createSystem(MouseOverSystem, allRectanglesForMouseOverQuery);
 world.createSystem(MouseOutSystem, allRectanglesForMouseOutQuery);
 world.createSystem(SelectionSystem, selectionQuery);
 
-
-// let isMouseSelecting = false;
-// let isMouseInTheResizingZone = false;
-// let isMouseResizing = false;
-// let resizeHandle = ResizeHandle.NONE;
-// let selectedEntityId: string;
-// let dragStartX: number;
-// let dragStartY: number;
+// Rendering - must be last
+world.createSystem(RenderingSystem, allRenderableQuery, renderer);
 
 /**
- * Cursor movement.
+ * Input Handlers
  */
 mouseMove((e) => {
   const mouse = cursor.getComponent(MouseComponent);
   mouse.setXY(e.offsetX, e.offsetY);
 });
 
-/**
- * Open/Show the context for an Entity.
- */
 mousePress((e) => {
-  // const x = (dragStartX = e.offsetX);
-  // const y = (dragStartY = e.offsetY);
-  const mouse = cursor.getComponent(MouseComponent);
   if (!cursor.hasComponent(IsMousePressed)) {
     cursor.addComponent(IsMousePressed);
   }
-  console.log("mousePress", mouse.x, mouse.y);
 });
 
 mouseRelease((e) => {
-  const mouse = cursor.getComponent(MouseComponent)
   cursor.removeComponent(IsMousePressed);
-  console.log("mouseRelease", mouse.x, mouse.y);
 });
 
-// mousePress((e) => {
-//   if (!isMouseInTheResizingZone || !isMouseSelecting) {
-//     return;
-//   }
-//
-//   isMouseResizing = true;
-//   console.log('isMouseResizing', isMouseResizing);
-//
-// });
+/**
+ * Initialize UI
+ */
+initFloatingMenu(world);
+initKeyboardEvents(world);
 
 /**
- * Resize
+ * Start the ECS world
  */
-// mouseDrag((e) => {
-//   if (!(isMouseSelecting && selectedEntityId && isMouseResizing)) {
-//     return;
-//   }
-//
-//   const entity = world.getEntity(selectedEntityId);
-//   if (!entity) {
-//     return;
-//   }
-//
-//   console.log('resizing');
-//
-//   const dragEndX = e.offsetX;
-//   const dragEndY = e.offsetY;
-//
-//   const isRect = entity.getComponent(RectangleComponent);
-//   const deltaX = dragStartX - dragEndX;
-//   const deltaY = dragStartY - dragEndY;
-//
-//   const rect = isRect.properties.rectangle;
-//
-//   const contextComp = entity.getComponent(HasRectangleContext);
-//   const contextRect = contextComp.properties.rectangle;
-//
-//   if (resizeHandle === ResizeHandle.LEFT) {
-//     rect.moveCenterBy(-deltaX / 2, 0);
-//     rect.width += deltaX;
-//     contextRect.width += deltaX;
-//   } else if (resizeHandle === ResizeHandle.RIGHT) {
-//     rect.moveCenterBy(-deltaX / 2, 0);
-//     rect.width -= deltaX;
-//     contextRect.width -= deltaX;
-//   } else if (resizeHandle === ResizeHandle.TOP) {
-//     rect.moveCenterBy(0, -deltaY / 2);
-//     rect.height += deltaY;
-//     contextRect.height += deltaY;
-//   } else if (resizeHandle === ResizeHandle.BOTTOM) {
-//     rect.moveCenterBy(0, -deltaY / 2);
-//     rect.height -= deltaY;
-//     contextRect.height -= deltaY;
-//   }
-//
-//   contextComp.properties.leftConnCircle.center.x = contextRect.topLeftX;
-//   contextComp.properties.leftConnCircle.center.y = contextRect.topLeftY + contextRect.height / 2;
-//   contextComp.properties.rightConnCircle.center.x = contextRect.topRightX;
-//   contextComp.properties.rightConnCircle.center.y = contextRect.topLeftY + contextRect.height / 2;
-//   contextComp.properties.topConnCircle.center.x = contextRect.topLeftX + contextRect.width / 2;
-//   contextComp.properties.topConnCircle.center.y = contextRect.topLeftY;
-//   contextComp.properties.bottomConnCircle.center.x = contextRect.bottomLeftX + contextRect.width / 2;
-//   contextComp.properties.bottomConnCircle.center.y = contextRect.bottomLeftY;
-//
-//   dragStartX = dragEndX;
-//   dragStartY = dragEndY;
-//
-// });
-
-/**
- * Detect resizing (for cursor).
- */
-
-
-/**
- * Moving shapes around.
- */
-// mouseDrag((e) => {
-//   if (!isMouseSelecting || isMouseResizing) {
-//     return;
-//   }
-//
-//   const dragEndX = e.offsetX;
-//   const dragEndY = e.offsetY;
-//
-//   console.log("dragging");
-//
-//   const entity = world.getEntity(selectedEntityId);
-//   if (entity) {
-//     const isRect = entity.getComponent(RectangleComponent);
-//     const deltaX = dragStartX - dragEndX;
-//     const deltaY = dragStartY - dragEndY;
-//
-//     const rect = isRect.properties.rectangle;
-//     rect.moveCenterBy(-deltaX, -deltaY);
-//
-//     // Update the context as well.
-//     if (entity.hasComponent(HasRectangleContext)) {
-//       const contextComp = entity.getComponent(HasRectangleContext);
-//       const contextCompRect = contextComp.properties.rectangle;
-//
-//       contextComp.properties.leftConnCircle.center.x = contextCompRect.topLeftX;
-//       contextComp.properties.leftConnCircle.center.y = contextCompRect.topLeftY + contextCompRect.height / 2;
-//       contextComp.properties.rightConnCircle.center.x = contextCompRect.topRightX;
-//       contextComp.properties.rightConnCircle.center.y = contextCompRect.topLeftY + contextCompRect.height / 2;
-//       contextComp.properties.topConnCircle.center.x = contextCompRect.topLeftX + contextCompRect.width / 2;
-//       contextComp.properties.topConnCircle.center.y = contextCompRect.topLeftY;
-//       contextComp.properties.bottomConnCircle.center.x = contextCompRect.bottomLeftX + contextCompRect.width / 2;
-//       contextComp.properties.bottomConnCircle.center.y = contextCompRect.bottomLeftY;
-//     }
-//
-//     // Reset drag.
-//     dragStartX = dragEndX;
-//     dragStartY = dragEndY;
-//   }
-// });
-
-// mouseRelease((e) => {
-//   console.log("mouseRelease");
-//   isMouseSelecting = false;
-//   if (isMouseResizing) {
-//     updateCanvasCursor('auto');
-//     resizeHandle = ResizeHandle.NONE;
-//     isMouseResizing = false;
-//   }
-//
-//   dragStartX = 0;
-//   dragStartY = 0;
-// });
-
 world.start();
 
+// Expose world for debugging
 (window as any)['world'] = world;

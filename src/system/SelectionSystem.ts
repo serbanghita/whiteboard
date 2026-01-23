@@ -1,9 +1,9 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "../component/RectangleComponent";
-import { Point } from "../geometry";
 import { updateCanvasCursor } from "../render";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import MouseComponent from "../component/MouseComponent";
+import { pointInRectangle } from "../collision";
 
 export default class SelectionSystem extends System {
   public constructor(
@@ -43,9 +43,12 @@ export default class SelectionSystem extends System {
         const selectedEntityRectComp = selectedEntity.getComponent(RectangleComponent);
 
         // Add updated "Rectangle" to the "Selection".
+        // Use centerX/centerY computed properties, then offset for selection padding
         entity.addComponent(RectangleComponent, {
-          x: selectedEntityRectComp.center.x, y: selectedEntityRectComp.center.y,
-          width: selectedEntityRectComp.width + 16, height: selectedEntityRectComp.height + 16
+          x: selectedEntityRectComp.x - 8,
+          y: selectedEntityRectComp.y - 8,
+          width: selectedEntityRectComp.width + 16,
+          height: selectedEntityRectComp.height + 16
         });
 
         selectionComp.isDirty = false;
@@ -54,7 +57,7 @@ export default class SelectionSystem extends System {
       let selectionRectComp = entity.getComponent(RectangleComponent);
 
       // If not in the padded area of the rect, don't bother to check
-      if (!selectionRectComp.rectangle.intersectsWithPoint(mouseComp.point)) {
+      if (!pointInRectangle(mouseComp.x, mouseComp.y, selectionRectComp.x, selectionRectComp.y, selectionRectComp.width, selectionRectComp.height)) {
         return;
       }
 

@@ -3,6 +3,7 @@ import RectangleComponent from "../component/RectangleComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import MouseComponent from "../component/MouseComponent";
 import IsMousePressed from "../component/IsMousePressed";
+import { pointInRectangle } from "../collision";
 
 export default class MousePressSystem extends System {
   public constructor(
@@ -24,7 +25,7 @@ export default class MousePressSystem extends System {
     this.query.execute().forEach((entity) => {
       const rectComp = entity.getComponent(RectangleComponent);
 
-      if (rectComp.rectangle.intersectsWithPoint(mouseComp.point)) {
+      if (pointInRectangle(mouseComp.x, mouseComp.y, rectComp.x, rectComp.y, rectComp.width, rectComp.height)) {
         // console.log(this.cursorPoint, "intersects with", entity.id);
 
         const selectionEntity = this.world.getEntity('selection');

@@ -1,6 +1,6 @@
-import { Entity } from "@serbanghita-gamedev/ecs";
+import { Entity, World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "./component/RectangleComponent";
-import { Rectangle } from "./geometry";
+import ToolStateComponent, { ToolType } from "./component/ToolStateComponent";
 
 let $wrapper: HTMLDivElement;
 let $canvas: HTMLCanvasElement;
@@ -66,16 +66,6 @@ export function mousePress(fn: (e: MouseEvent) => void) {
 
 export function mouseRelease(fn: (e: MouseEvent) => void) {
   $wrapper.addEventListener("mouseup", fn, { capture: true });
-  // $canvas.addEventListener(
-  //   "mouseup",
-  //   (e) => {
-  //     fn(e);
-  //     if (mouseDragController) {
-  //       mouseDragController.abort();
-  //     }
-  //   },
-  //   { capture: true },
-  // );
 }
 
 export function mouseOver(fn: (e: MouseEvent) => void) {
@@ -87,8 +77,6 @@ export function mouseMove(fn: (e: MouseEvent) => void) {
 }
 
 export function mouseDrag(fn: (e: MouseEvent) => void) {
-  // mouseDragController = new AbortController();
-  // $canvas.addEventListener("mousemove", fn, { capture: true, signal: mouseDragController.signal });
   $canvas.addEventListener("mousemove", fn, { capture: true });
 }
 
@@ -97,44 +85,29 @@ export function hasContextSelection(entity: Entity) {
 }
 
 export function createContextSelectionForEntity(entity: Entity) {
-
-  const isRect = entity.getComponent(RectangleComponent);
-  const rect = isRect.rectangle;
+  const rectComp = entity.getComponent(RectangleComponent);
 
   const $div = document.createElement('div');
   $div.id = `contextSelection-entity-${entity.id}`;
-  $div.style.width = `${rect.width}px`;
-  $div.style.height = `${rect.height}px`;
+  $div.style.width = `${rectComp.width}px`;
+  $div.style.height = `${rectComp.height}px`;
   $div.style.border = '2px solid blue';
   $div.style.position = 'absolute';
-  $div.style.left = `${rect.topLeftX-1}px`;
-  $div.style.top = `${rect.topLeftY-1}px`;
+  $div.style.left = `${rectComp.x - 1}px`;
+  $div.style.top = `${rectComp.y - 1}px`;
   $div.style.pointerEvents = 'none';
 
   $wrapper.appendChild($div);
 }
 
-function createConnectionPointsForRect(rect: Rectangle) {
-  // Left
-  const $left = document.createElement('div');
-  $left.className = 'entity-connection-point';
-  $left.style.position = 'absolute';
-  $left.style
-  // Right
-
-  // Top
-  // Bottom
-}
-
 export function updateContextSelectionForEntity(entity: Entity) {
-  const isRect = entity.getComponent(RectangleComponent);
-  const rect = isRect.rectangle;
+  const rectComp = entity.getComponent(RectangleComponent);
 
   const $div = document.getElementById(`contextSelection-entity-${entity.id}`) as HTMLDivElement;
-  $div.style.left = `${rect.topLeftX-1}px`;
-  $div.style.top = `${rect.topLeftY-1}px`;
-  $div.style.width = `${rect.width}px`;
-  $div.style.height = `${rect.height}px`;
+  $div.style.left = `${rectComp.x - 1}px`;
+  $div.style.top = `${rectComp.y - 1}px`;
+  $div.style.width = `${rectComp.width}px`;
+  $div.style.height = `${rectComp.height}px`;
 }
 
 export function updateCanvasCursor(cursor: string) {
@@ -144,4 +117,65 @@ export function updateCanvasCursor(cursor: string) {
 export function removeContextSelectionForEntity(entity: Entity) {
   const $div = document.getElementById(`contextSelection-entity-${entity.id}`) as HTMLDivElement;
   $div.remove();
+}
+
+/**
+ * Initialize floating menu event binding.
+ * Updates ToolStateComponent when menu buttons are clicked.
+ */
+export function initFloatingMenu(world: World) {
+  const floatingMenu = document.querySelector('.floating-menu');
+  if (!floatingMenu) {
+    console.warn('Floating menu not found in DOM');
+    return;
+  }
+
+  floatingMenu.addEventListener('click', (e) => {
+    const button = (e.target as HTMLElement).closest('[data-tool]') as HTMLElement | null;
+    if (!button) return;
+
+    const tool = button.dataset.tool as ToolType;
+    if (!tool) return;
+
+    // Update visual state
+    floatingMenu.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+
+    // Update ECS state
+    const toolEntity = world.getEntity('tool');
+    if (toolEntity) {
+      const toolState = toolEntity.getComponent(ToolStateComponent);
+      toolState.currentTool = tool;
+      toolState.reset(); // Reset any in-progress drawing
+      console.log(`Tool changed to: ${tool}`);
+    }
+  });
+}
+
+/**
+ * Initialize keyboard event handling.
+ * Handles Escape key to cancel drawing.
+ */
+export function initKeyboardEvents(world: World) {
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const toolEntity = world.getEntity('tool');
+      if (toolEntity) {
+        const toolState = toolEntity.getComponent(ToolStateComponent);
+
+        // Cancel any in-progress drawing
+        if (toolState.drawState === 'FIRST_POINT_SET') {
+          // If there's a preview entity, destroy it
+          if (toolState.previewEntityId) {
+            const previewEntity = world.getEntity(toolState.previewEntityId);
+            if (previewEntity) {
+              world.removeEntity(previewEntity);
+            }
+          }
+          toolState.reset();
+          console.log('Drawing cancelled');
+        }
+      }
+    }
+  });
 }

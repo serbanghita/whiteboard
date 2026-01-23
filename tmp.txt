@@ -1,0 +1,38 @@
+## Cursor button - "select" mode
+
+In "select" mode, the user can click and drag the mouse creating a select rectangle which has a dotted stroke,
+when this intersects an Entity shape, then that first Entity becomes secondary state of the "select" mode, to be precise:
+"rectangle mode", "circle mode" or "line mode", depending on the Entity being encountered in the selection.
+
+Ignore this section: we will proceed with this in the next plan.
+
+## History
+
+All the actions are saved in a history stack of 10 items.
+
+The stack looks like this:
+
+```js
+[{ old: {/* ...*/}, new: {/* ...*/} }, { old: {/* ...*/}, new: {/* ...*/} }, { old: {/* ...*/}, new: {/* ...*/}}]
+```
+
+Each "old" and "new" items have the structure from "Keeping state - Entity item".
+
+We do not implement Keyboard Shortcuts at this stage of the plan.
+
+
+Integrate with ECS instead of bypassing it:
+
+
+
+
+```typescript
+// Component-based history
+class HistoryComponent extends Component {
+    properties: { stack: HistoryEntry[], pointer: number, maxSize: number }
+}
+// Attach to a singleton "history" entity
+```
+
+The idea behind this structure is that every time user wants to revert an action, then the program knows what entity was last modified and what were it's "old"
+and "new" properties. This kind of structure is intended for future uses of Undo/Redo, essentially going back and forth in history.

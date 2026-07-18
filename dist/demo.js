@@ -479,8 +479,7 @@
             return;
           }
           fpsCapAccumulator -= fpsCapDurationTime;
-          if (fpsCapAccumulator > fpsCapDurationTime)
-            fpsCapAccumulator = 0;
+          if (fpsCapAccumulator > fpsCapDurationTime) fpsCapAccumulator = 0;
         }
         frames++;
         this.frameNo++;
@@ -700,8 +699,7 @@
   }
   function setActiveToolButton(tool2) {
     const floatingMenu = document.querySelector(".floating-menu");
-    if (!floatingMenu)
-      return;
+    if (!floatingMenu) return;
     floatingMenu.querySelectorAll("button").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.tool === tool2);
     });
@@ -714,11 +712,9 @@
     }
     floatingMenu.addEventListener("click", (e) => {
       const button = e.target.closest("[data-tool]");
-      if (!button)
-        return;
+      if (!button) return;
       const tool2 = button.dataset.tool;
-      if (!tool2)
-        return;
+      if (!tool2) return;
       setActiveToolButton(tool2);
       const toolEntity = world2.getEntity("tool");
       if (toolEntity) {
@@ -1127,8 +1123,7 @@
       const dx = x2 - x1;
       const dy = y2 - y1;
       const len = Math.sqrt(dx * dx + dy * dy);
-      if (len === 0)
-        return;
+      if (len === 0) return;
       const nx = -dy / len * (width / 2);
       const ny = dx / len * (width / 2);
       const positions = new Float32Array([
@@ -1926,8 +1921,7 @@
       const pressEdge = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
       const selectionEntity = this.world.getEntity("selection");
-      if (!selectionEntity)
-        return;
+      if (!selectionEntity) return;
       const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
       const toolEntity = this.world.getEntity("tool");
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
@@ -1995,8 +1989,7 @@
     }
     update(now) {
       const toolEntity = this.world.getEntity("tool");
-      if (!toolEntity)
-        return;
+      if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
       const cursor2 = this.world.getEntity("cursor");
       const mouseComp = cursor2.getComponent(MouseComponent);
@@ -2020,8 +2013,7 @@
     lastReleaseCount = 0;
     update(now) {
       const toolEntity = this.world.getEntity("tool");
-      if (!toolEntity)
-        return;
+      if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
       const cursor2 = this.world.getEntity("cursor");
       const mouseComp = cursor2.getComponent(MouseComponent);
@@ -2030,8 +2022,7 @@
       const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
       this.lastPressCount = mouseComp.pressCount;
       this.lastReleaseCount = mouseComp.releaseCount;
-      if (toolState.currentTool !== "rectangle")
-        return;
+      if (toolState.currentTool !== "rectangle") return;
       if (toolState.drawState === "IDLE") {
         if (pressEdge) {
           toolState.drawState = "FIRST_POINT_SET";
@@ -2097,8 +2088,7 @@
     lastReleaseCount = 0;
     update(now) {
       const toolEntity = this.world.getEntity("tool");
-      if (!toolEntity)
-        return;
+      if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
       const cursor2 = this.world.getEntity("cursor");
       const mouseComp = cursor2.getComponent(MouseComponent);
@@ -2107,8 +2097,7 @@
       const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
       this.lastPressCount = mouseComp.pressCount;
       this.lastReleaseCount = mouseComp.releaseCount;
-      if (toolState.currentTool !== "circle")
-        return;
+      if (toolState.currentTool !== "circle") return;
       if (toolState.drawState === "IDLE") {
         if (pressEdge) {
           toolState.drawState = "FIRST_POINT_SET";
@@ -2174,15 +2163,13 @@
     lastPressCount = 0;
     update(now) {
       const toolEntity = this.world.getEntity("tool");
-      if (!toolEntity)
-        return;
+      if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
       const cursor2 = this.world.getEntity("cursor");
       const mouseComp = cursor2.getComponent(MouseComponent);
       const isClick = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
-      if (toolState.currentTool !== "line")
-        return;
+      if (toolState.currentTool !== "line") return;
       if (toolState.drawState === "IDLE") {
         if (isClick) {
           toolState.drawState = "FIRST_POINT_SET";

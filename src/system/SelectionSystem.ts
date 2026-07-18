@@ -1,10 +1,19 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "../component/RectangleComponent";
-import { updateCanvasCursor } from "../render";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
-import MouseComponent from "../component/MouseComponent";
-import { pointInRectangle } from "../collision";
+import { getEntityBounds } from "../shape";
 
+// The selection rectangle hugs the selected shapes' bounds exactly; the
+// corner handles drawn by RenderSystem sit on the box corners.
+const SELECTION_PADDING = 0;
+
+/**
+ * SelectionSystem maintains the selection entity's bounding RectangleComponent:
+ * the union of the bounds of all selected shapes (any shape type), padded.
+ *
+ * @todo Resize handles on the selection rectangle (edge hit-zones + cursor
+ * feedback + a ResizeSystem mutating the selected shapes' dimensions).
+ */
 export default class SelectionSystem extends System {
   public constructor(
     public world: World,
@@ -14,82 +23,42 @@ export default class SelectionSystem extends System {
   }
 
   public update(now: number): void {
-    const cursor = this.world.getEntity('cursor') as Entity;
-    const mouseComp = cursor.getComponent(MouseComponent);
-
     this.query.execute().forEach((entity) => {
       const selectionComp = entity.getComponent(SelectionRectangleComponent);
 
-      // If selection is empty, exit.
-      if (selectionComp.entities.size === 0) {
-        if (selectionComp.isDirty) {
-          if (entity.hasComponent(RectangleComponent)) {
-            entity.removeComponent(RectangleComponent);
-          }
-          selectionComp.isDirty = false;
+      if (!selectionComp.isDirty) {
+        return;
+      }
+      selectionComp.isDirty = false;
+
+      if (entity.hasComponent(RectangleComponent)) {
+        entity.removeComponent(RectangleComponent);
+      }
+
+      // Union of bounds over all selected entities.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      selectionComp.entities.forEach((selectedEntity) => {
+        const bounds = getEntityBounds(selectedEntity);
+        if (!bounds) {
+          return;
         }
+        minX = Math.min(minX, bounds.x);
+        minY = Math.min(minY, bounds.y);
+        maxX = Math.max(maxX, bounds.x + bounds.width);
+        maxY = Math.max(maxY, bounds.y + bounds.height);
+      });
+
+      if (minX === Infinity) {
+        // Nothing (with bounds) is selected - no selection rectangle.
         return;
       }
 
-      // Compute the new RectangleComponent.
-      if (selectionComp.isDirty) {
-        if (entity.hasComponent(RectangleComponent)) {
-          entity.removeComponent(RectangleComponent);
-        }
-
-        // Get the first entity (for now).
-        // @todo: Add support to draw selection over multiple entities.
-        const [, selectedEntity] = selectionComp.entities.entries().next().value as [string, Entity];
-        const selectedEntityRectComp = selectedEntity.getComponent(RectangleComponent);
-
-        // Add updated "Rectangle" to the "Selection".
-        // Use centerX/centerY computed properties, then offset for selection padding
-        entity.addComponent(RectangleComponent, {
-          x: selectedEntityRectComp.x - 8,
-          y: selectedEntityRectComp.y - 8,
-          width: selectedEntityRectComp.width + 16,
-          height: selectedEntityRectComp.height + 16
-        });
-
-        selectionComp.isDirty = false;
-      }
-
-      let selectionRectComp = entity.getComponent(RectangleComponent);
-
-      // If not in the padded area of the rect, don't bother to check
-      if (!pointInRectangle(mouseComp.x, mouseComp.y, selectionRectComp.x, selectionRectComp.y, selectionRectComp.width, selectionRectComp.height)) {
-        return;
-      }
-
-      // if (entity.hasComponent(HasRectangleContext)) {
-      //   const contextComp = entity.getComponent(HasRectangleContext);
-      //   if (contextComp.properties.rightConnCircle.intersectsWithPoint(point)) {
-      //     console.log('rightConnPoint');
-      //     updateCanvasCursor('cell');
-      //     return;
-      //   }
-      // }
-
-      // if (point.x >= rect.topLeftX - RESIZE_HANDLE_AREA_TOLERANCE && point.x <= rect.topLeftX + RESIZE_HANDLE_AREA_TOLERANCE) {
-      //   resizeHandle = ResizeHandle.LEFT;
-      //   updateCanvasCursor('ew-resize');
-      //   isMouseInTheResizingZone = true;
-      // } else if (point.x >= rect.topRightX - RESIZE_HANDLE_AREA_TOLERANCE && point.x <= rect.topRightX + RESIZE_HANDLE_AREA_TOLERANCE) {
-      //   resizeHandle = ResizeHandle.RIGHT;
-      //   updateCanvasCursor('ew-resize');
-      //   isMouseInTheResizingZone = true;
-      // } else if (point.y >= rect.topLeftY - RESIZE_HANDLE_AREA_TOLERANCE && point.y <= rect.topLeftY + RESIZE_HANDLE_AREA_TOLERANCE) {
-      //   resizeHandle = ResizeHandle.TOP;
-      //   updateCanvasCursor('ns-resize');
-      //   isMouseInTheResizingZone = true;
-      // } else if (point.y >= rect.bottomLeftY - RESIZE_HANDLE_AREA_TOLERANCE && point.y <= rect.bottomLeftY + RESIZE_HANDLE_AREA_TOLERANCE) {
-      //   resizeHandle = ResizeHandle.BOTTOM;
-      //   updateCanvasCursor('ns-resize');
-      //   isMouseInTheResizingZone = true;
-      // } else {
-      //   updateCanvasCursor('auto');
-      //   isMouseInTheResizingZone = false;
-      // }
+      entity.addComponent(RectangleComponent, {
+        x: minX - SELECTION_PADDING,
+        y: minY - SELECTION_PADDING,
+        width: maxX - minX + SELECTION_PADDING * 2,
+        height: maxY - minY + SELECTION_PADDING * 2
+      });
     });
   }
 }

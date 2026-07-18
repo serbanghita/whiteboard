@@ -1,7 +1,7 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
-export default class IsMousePressed extends Component {
-  constructor(public properties: {}) {
+export default class IsMousePressed extends Component<Record<string, never>> {
+  constructor(public properties: Record<string, never>) {
     super(properties);
   }
 }

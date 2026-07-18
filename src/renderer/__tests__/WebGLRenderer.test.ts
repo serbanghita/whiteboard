@@ -33,10 +33,21 @@ describe('WebGLRenderer', () => {
       const newGl = createMockWebGLContext();
       new WebGLRenderer(newGl);
 
+      // Resolution first, then the identity-camera u_translate default.
       const uniform2fCalls = newGl._calls.filter(c => c.method === 'uniform2f');
-      expect(uniform2fCalls.length).toBe(1);
+      expect(uniform2fCalls.length).toBe(2);
       expect(uniform2fCalls[0].args[1]).toBe(800); // canvas width
       expect(uniform2fCalls[0].args[2]).toBe(600); // canvas height
+    });
+
+    it('initializes an identity camera', () => {
+      const newGl = createMockWebGLContext();
+      new WebGLRenderer(newGl);
+
+      const uniform2fCalls = newGl._calls.filter(c => c.method === 'uniform2f');
+      expect(uniform2fCalls[1].args.slice(1)).toEqual([0, 0]); // u_translate
+      const uniform1fCalls = newGl._calls.filter(c => c.method === 'uniform1f');
+      expect(uniform1fCalls.at(-1)!.args[1]).toBe(1); // u_scale
     });
 
     it('throws error when buffer creation fails', () => {
@@ -46,6 +57,17 @@ describe('WebGLRenderer', () => {
       expect(() => {
         new WebGLRenderer(failGl);
       }).toThrow('Failed to create WebGL buffer');
+    });
+  });
+
+  describe('setCamera', () => {
+    it('sets the translate and scale uniforms', () => {
+      renderer.setCamera(2, 100, 50);
+
+      const uniform2fCalls = gl._calls.filter(c => c.method === 'uniform2f');
+      expect(uniform2fCalls.at(-1)!.args.slice(1)).toEqual([100, 50]); // u_translate
+      const uniform1fCalls = gl._calls.filter(c => c.method === 'uniform1f');
+      expect(uniform1fCalls.at(-1)!.args[1]).toBe(2); // u_scale
     });
   });
 

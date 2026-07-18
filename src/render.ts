@@ -13,10 +13,8 @@ export function getPixelRatio() {
 export function createWrapper(id: string) {
   $wrapper = document.createElement('div');
   $wrapper.id = id;
-  $wrapper.style.width = `${640 * getPixelRatio()}px`;
-  $wrapper.style.height = `${480 * getPixelRatio()}px`;
-  $wrapper.style.position = 'relative';
-  $wrapper.style.border = "1px solid dotted";
+  $wrapper.style.position = 'fixed';
+  $wrapper.style.inset = '0';
 
   document.body.appendChild($wrapper);
 
@@ -26,9 +24,9 @@ export function createWrapper(id: string) {
 export function createCanvas(id: string) {
   $canvas = document.createElement('canvas') as HTMLCanvasElement;
   $canvas.id = id;
-  $canvas.width = 640 * getPixelRatio();
-  $canvas.height = 480 * getPixelRatio();
-  $canvas.style.border = "1px solid black";
+  $canvas.style.display = "block";
+  $canvas.style.width = "100%";
+  $canvas.style.height = "100%";
   $canvas.style.background = "white";
 
   const glContext = $canvas.getContext("webgl");
@@ -37,8 +35,7 @@ export function createCanvas(id: string) {
   }
   gl = glContext;
 
-  // Set up WebGL viewport and clear color (white background)
-  gl.viewport(0, 0, $canvas.width, $canvas.height);
+  resizeCanvasToViewport();
   gl.clearColor(1.0, 1.0, 1.0, 1.0);
 
   if (!$wrapper) {
@@ -48,6 +45,21 @@ export function createCanvas(id: string) {
   $wrapper.appendChild($canvas);
 
   return { $canvas, gl };
+}
+
+/**
+ * Sizes the canvas backing store to the full viewport, scaled by
+ * devicePixelRatio for crisp rendering on HiDPI screens. Returns the viewport
+ * size in CSS pixels — the app's coordinate space (shape coordinates and mouse
+ * offsetX/offsetY both live in CSS pixels; only the backing store is scaled).
+ */
+export function resizeCanvasToViewport() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  $canvas.width = width * getPixelRatio();
+  $canvas.height = height * getPixelRatio();
+  gl.viewport(0, 0, $canvas.width, $canvas.height);
+  return { width, height };
 }
 
 export function clearCanvas() {
@@ -65,7 +77,15 @@ export function mousePress(fn: (e: MouseEvent) => void) {
 }
 
 export function mouseRelease(fn: (e: MouseEvent) => void) {
-  $wrapper.addEventListener("mouseup", fn, { capture: true });
+  // Bound on window: a mouseup outside the wrapper must still end the press,
+  // otherwise IsMousePressed stays stuck on and click edges never fire again.
+  window.addEventListener("mouseup", fn, { capture: true });
+}
+
+export function wheel(fn: (e: WheelEvent) => void) {
+  // passive: false is required - a passive listener ignores preventDefault(),
+  // and ctrl+wheel would trigger the browser's page zoom.
+  $canvas.addEventListener("wheel", fn, { passive: false });
 }
 
 export function mouseOver(fn: (e: MouseEvent) => void) {
@@ -120,6 +140,19 @@ export function removeContextSelectionForEntity(entity: Entity) {
 }
 
 /**
+ * Highlight the given tool's button in the floating menu.
+ * Safe to call when the menu is absent (e.g. headless tests without it).
+ */
+export function setActiveToolButton(tool: ToolType) {
+  const floatingMenu = document.querySelector('.floating-menu');
+  if (!floatingMenu) return;
+
+  floatingMenu.querySelectorAll('button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tool === tool);
+  });
+}
+
+/**
  * Initialize floating menu event binding.
  * Updates ToolStateComponent when menu buttons are clicked.
  */
@@ -138,15 +171,19 @@ export function initFloatingMenu(world: World) {
     if (!tool) return;
 
     // Update visual state
-    floatingMenu.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
-    button.classList.add('active');
+    setActiveToolButton(tool);
 
     // Update ECS state
     const toolEntity = world.getEntity('tool');
     if (toolEntity) {
       const toolState = toolEntity.getComponent(ToolStateComponent);
+      // Cancel any in-progress drawing before switching, like Escape does -
+      // reset() alone would orphan the preview entity on the canvas.
+      if (toolState.previewEntityId) {
+        world.removeEntity(toolState.previewEntityId);
+      }
       toolState.currentTool = tool;
-      toolState.reset(); // Reset any in-progress drawing
+      toolState.reset();
       console.log(`Tool changed to: ${tool}`);
     }
   });
@@ -167,10 +204,7 @@ export function initKeyboardEvents(world: World) {
         if (toolState.drawState === 'FIRST_POINT_SET') {
           // If there's a preview entity, destroy it
           if (toolState.previewEntityId) {
-            const previewEntity = world.getEntity(toolState.previewEntityId);
-            if (previewEntity) {
-              world.removeEntity(previewEntity);
-            }
+            world.removeEntity(toolState.previewEntityId);
           }
           toolState.reset();
           console.log('Drawing cancelled');

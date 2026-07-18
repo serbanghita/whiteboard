@@ -1,9 +1,9 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
 import ToolStateComponent from "../component/ToolStateComponent";
 import MouseComponent from "../component/MouseComponent";
-import IsMousePressed from "../component/IsMousePressed";
 import LineComponent from "../component/LineComponent";
 import IsRendered from "../component/IsRendered";
+import { autoSelectFreshShape } from "../autoSelect";
 
 const MIN_LINE_LENGTH = 5;
 
@@ -14,7 +14,7 @@ const MIN_LINE_LENGTH = 5;
  */
 export default class LineDrawSystem extends System {
   private entityCounter = 0;
-  private wasMousePressed = false;
+  private lastPressCount = 0;
 
   public constructor(
     public world: World,
@@ -29,33 +29,34 @@ export default class LineDrawSystem extends System {
 
     const toolState = toolEntity.getComponent(ToolStateComponent);
 
-    // Only handle line mode
-    if (toolState.currentTool !== 'line') return;
-
     const cursor = this.world.getEntity('cursor') as Entity;
     const mouseComp = cursor.getComponent(MouseComponent);
-    const isMousePressed = cursor.hasComponent(IsMousePressed);
 
-    // Detect click (transition from not pressed to pressed)
-    const isClick = isMousePressed && !this.wasMousePressed;
-    this.wasMousePressed = isMousePressed;
+    // Consume the press edge every frame, even when another tool is active -
+    // otherwise a press made in another mode replays as a click when the
+    // line tool resumes, swallowing or fabricating the first point.
+    const isClick = mouseComp.pressCount > this.lastPressCount;
+    this.lastPressCount = mouseComp.pressCount;
+
+    // Only handle line mode
+    if (toolState.currentTool !== 'line') return;
 
     // State machine: IDLE -> FIRST_POINT_SET -> IDLE
     if (toolState.drawState === 'IDLE') {
       // Wait for first click to start drawing
       if (isClick) {
         toolState.drawState = 'FIRST_POINT_SET';
-        toolState.startX = mouseComp.x;
-        toolState.startY = mouseComp.y;
+        toolState.startX = mouseComp.pressX;
+        toolState.startY = mouseComp.pressY;
 
         // Create preview entity
         const entityId = `line-${Date.now()}-${this.entityCounter++}`;
         const previewEntity = this.world.createEntity(entityId);
         previewEntity.addComponent(LineComponent, {
-          x1: mouseComp.x,
-          y1: mouseComp.y,
-          x2: mouseComp.x,
-          y2: mouseComp.y,
+          x1: mouseComp.pressX,
+          y1: mouseComp.pressY,
+          x2: mouseComp.pressX,
+          y2: mouseComp.pressY,
           strokeColor: 'black'
         });
         previewEntity.addComponent(IsRendered);
@@ -79,14 +80,22 @@ export default class LineDrawSystem extends System {
           if (previewEntity) {
             const lineComp = previewEntity.getComponent(LineComponent);
 
+            // The end point is where the click happened (event time), not
+            // wherever the mouse is at frame time.
+            lineComp.x2 = mouseComp.pressX;
+            lineComp.y2 = mouseComp.pressY;
+
             // Check minimum length
             if (lineComp.length < MIN_LINE_LENGTH) {
               // Cancel - too short
-              this.world.removeEntity(previewEntity);
+              this.world.removeEntity(previewEntity.id);
               console.log('Line cancelled: too short');
             } else {
               // Keep the entity - drawing complete
               console.log(`Line created: ${toolState.previewEntityId}`);
+              // Switch to the cursor tool with the fresh shape selected, so
+              // its handles show and it can be dragged right away.
+              autoSelectFreshShape(this.world, previewEntity);
             }
           }
         }

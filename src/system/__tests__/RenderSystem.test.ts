@@ -1,25 +1,32 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { World, Entity } from '@serbanghita-gamedev/ecs';
+import RenderSystem from '../RenderSystem';
+import RectangleComponent from '../../component/RectangleComponent';
+import CircleComponent from '../../component/CircleComponent';
+import LineComponent from '../../component/LineComponent';
+import IsRendered from '../../component/IsRendered';
+import IsMouseOver from '../../component/IsMouseOver';
+import SelectionRectangleComponent from '../../component/SelectionRectangleComponent';
 import { IRenderer } from '../../renderer';
 
 /**
- * Integration tests for RenderSystem rendering logic.
- *
- * These tests verify the rendering behavior by simulating what RenderSystem does
- * without importing the actual system (which has external ECS dependencies).
- * The tests verify:
- * - Renderer.clear() is called
- * - Rectangles are drawn with correct coordinates and options
- * - Selection rectangles are drawn in blue
- * - Hover highlights are drawn with gray stroke
- * - Center dots are drawn on shapes
+ * Unit tests for the real RenderSystem against a real World and a mock
+ * renderer. Verifies:
+ * - clear() is called each update
+ * - shapes render plainly (no center dots, no hover visuals)
+ * - the selection overlay: tight blue bounding box + gray ring corner handles,
+ *   endpoint handles for a single selected line
  */
 
-// Create mock renderer
-function createMockRenderer(): IRenderer & { _calls: Array<{ method: string; args: unknown[] }> } {
-  const calls: Array<{ method: string; args: unknown[] }> = [];
+type RecordedCall = { method: string; args: unknown[] };
+
+function createMockRenderer(): IRenderer & { _calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
 
   return {
     _calls: calls,
+    setResolution: vi.fn((width, height) => calls.push({ method: 'setResolution', args: [width, height] })),
+    setCamera: vi.fn((scale, x, y) => calls.push({ method: 'setCamera', args: [scale, x, y] })),
     clear: vi.fn(() => calls.push({ method: 'clear', args: [] })),
     rectangle: vi.fn((x, y, width, height, options) =>
       calls.push({ method: 'rectangle', args: [x, y, width, height, options] })
@@ -39,195 +46,154 @@ function createMockRenderer(): IRenderer & { _calls: Array<{ method: string; arg
   };
 }
 
-// Simulated rectangle data (matches RectangleComponent structure)
-interface RectData {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  strokeColor?: string;
-  fillColor?: string;
-}
+const SELECTION_STROKE_COLOR = "rgb(66 133 244)";
+const HANDLE_OPTIONS = { fillColor: "white", strokeColor: "rgb(170 170 170)", strokeWidth: 3 };
 
-// Helper to compute center from top-left based rectangle
-function centerX(rect: RectData): number {
-  return rect.x + rect.width / 2;
-}
+// The ComponentRegistry is a process-wide singleton - register once.
+const registryWorld = new World();
+registryWorld.registerComponents([
+  IsRendered,
+  IsMouseOver,
+  RectangleComponent,
+  CircleComponent,
+  LineComponent,
+  SelectionRectangleComponent,
+]);
 
-function centerY(rect: RectData): number {
-  return rect.y + rect.height / 2;
-}
+describe('RenderSystem', () => {
+  let world: World;
+  let renderer: ReturnType<typeof createMockRenderer>;
+  let system: RenderSystem;
+  let selectionEntity: Entity;
 
-// Simulated entity data
-interface EntityData {
-  rect: RectData;
-  isSelection?: boolean;
-  isMouseOver?: boolean;
-}
+  function calls(method: string): RecordedCall[] {
+    return renderer._calls.filter((c) => c.method === method);
+  }
 
-// Simulated render logic (matches updated RenderSystem.update behavior)
-function renderEntities(renderer: IRenderer, entities: EntityData[]): void {
-  renderer.clear();
-
-  entities.forEach((entity) => {
-    const rect = entity.rect;
-
-    if (entity.isSelection) {
-      renderer.rectangle(rect.x, rect.y, rect.width, rect.height, { strokeColor: "blue" });
-      renderer.dot(centerX(rect) - 1, centerY(rect) - 1, { fillColor: "blue", strokeWidth: 2 });
-    } else {
-      renderer.rectangle(rect.x, rect.y, rect.width, rect.height, {
-        strokeColor: rect.strokeColor || "black",
-        fillColor: rect.fillColor
-      });
-      renderer.dot(centerX(rect) - 1, centerY(rect) - 1, { fillColor: "black", strokeWidth: 2 });
-
-      if (entity.isMouseOver) {
-        renderer.rectangle(rect.x - 8, rect.y - 8, rect.width + 16, rect.height + 16, { strokeColor: "rgb(204 204 204)" });
-      }
-    }
-  });
-}
-
-describe('RenderSystem Integration Tests', () => {
-  let mockRenderer: ReturnType<typeof createMockRenderer>;
+  // Handle calls are circle() calls with the handle options.
+  function handleCalls(): RecordedCall[] {
+    return calls('circle').filter((c) => JSON.stringify(c.args[3]) === JSON.stringify(HANDLE_OPTIONS));
+  }
 
   beforeEach(() => {
-    mockRenderer = createMockRenderer();
+    world = new World();
+    renderer = createMockRenderer();
+    const query = world.createQuery('renderables', { all: [IsRendered] });
+    system = world.createSystem(RenderSystem, query, renderer);
+    selectionEntity = world.createEntity('selection');
+    selectionEntity.addComponent(SelectionRectangleComponent);
   });
 
-  describe('rendering behavior', () => {
-    it('calls renderer.clear() on update', () => {
-      renderEntities(mockRenderer, []);
+  function addShape(id: string, componentClass: any, props: object): Entity {
+    const entity = world.createEntity(id);
+    entity.addComponent(componentClass, props);
+    entity.addComponent(IsRendered);
+    return entity;
+  }
 
-      expect(mockRenderer.clear).toHaveBeenCalledTimes(1);
-    });
+  it('calls renderer.clear() on update', () => {
+    system.update(0);
+    expect(renderer.clear).toHaveBeenCalledTimes(1);
+  });
 
-    it('draws rectangles for entities with RectangleComponent', () => {
-      // Rectangle at (75, 85) with width 50, height 30
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      renderEntities(mockRenderer, [{ rect }]);
+  it('renders nothing but clear() for an empty world', () => {
+    system.update(0);
+    expect(renderer._calls).toEqual([{ method: 'clear', args: [] }]);
+  });
 
-      // Should draw rectangle
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      expect(rectCalls.length).toBe(1);
-      expect(rectCalls[0].args[0]).toBe(75);
-      expect(rectCalls[0].args[1]).toBe(85);
-      expect(rectCalls[0].args[2]).toBe(50);
-      expect(rectCalls[0].args[3]).toBe(30);
-      expect(rectCalls[0].args[4]).toEqual({ strokeColor: 'black', fillColor: undefined });
+  it('draws rectangles plainly, without center dots', () => {
+    addShape('r1', RectangleComponent, { x: 75, y: 85, width: 50, height: 30 });
+    system.update(0);
 
-      // Should draw center dot
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(dotCalls.length).toBe(1);
-      expect(dotCalls[0].args[2]).toEqual({ fillColor: 'black', strokeWidth: 2 });
-    });
+    expect(calls('rectangle')).toEqual([
+      { method: 'rectangle', args: [75, 85, 50, 30, { strokeColor: 'black', fillColor: undefined }] },
+    ]);
+    expect(calls('dot')).toHaveLength(0);
+  });
 
-    it('draws selection rectangle in blue for SelectionRectangleComponent', () => {
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      renderEntities(mockRenderer, [{ rect, isSelection: true }]);
+  it('draws circles and lines', () => {
+    addShape('c1', CircleComponent, { x: 100, y: 100, radius: 40 });
+    addShape('l1', LineComponent, { x1: 10, y1: 20, x2: 60, y2: 80 });
+    system.update(0);
 
-      // Should draw rectangle in blue
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      expect(rectCalls.length).toBe(1);
-      expect(rectCalls[0].args[4]).toEqual({ strokeColor: 'blue' });
+    expect(calls('circle')).toEqual([
+      { method: 'circle', args: [100, 100, 40, { strokeColor: 'black', fillColor: undefined }] },
+    ]);
+    expect(calls('line')).toEqual([
+      { method: 'line', args: [10, 20, 60, 80, { strokeColor: 'black', strokeWidth: undefined }] },
+    ]);
+  });
 
-      // Should draw center dot in blue
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(dotCalls.length).toBe(1);
-      expect(dotCalls[0].args[2]).toEqual({ fillColor: 'blue', strokeWidth: 2 });
-    });
+  it('hovering draws nothing extra for an unselected shape', () => {
+    const entity = addShape('r1', RectangleComponent, { x: 75, y: 85, width: 50, height: 30 });
+    entity.addComponent(IsMouseOver);
+    system.update(0);
 
-    it('draws hover highlight when entity has IsMouseOver', () => {
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      renderEntities(mockRenderer, [{ rect, isMouseOver: true }]);
+    expect(calls('rectangle')).toHaveLength(1);
+    expect(calls('circle')).toHaveLength(0);
+    expect(calls('dot')).toHaveLength(0);
+  });
 
-      // Should draw two rectangles: main shape and hover highlight
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      expect(rectCalls.length).toBe(2);
+  it('draws the selection overlay: tight blue box + four corner handles', () => {
+    const entity = addShape('r1', RectangleComponent, { x: 75, y: 85, width: 50, height: 30 });
+    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+    selectionComp.addEntity(entity);
+    // SelectionSystem maintains the bounds; simulate its output (tight box).
+    selectionEntity.addComponent(RectangleComponent, { x: 75, y: 85, width: 50, height: 30 });
 
-      // First rectangle is the shape with black stroke
-      expect(rectCalls[0].args[4]).toEqual({ strokeColor: 'black', fillColor: undefined });
+    system.update(0);
 
-      // Second rectangle is the hover highlight with gray stroke
-      expect(rectCalls[1].args[4]).toEqual({ strokeColor: 'rgb(204 204 204)' });
+    // Shape rectangle + selection box rectangle.
+    const rectCalls = calls('rectangle');
+    expect(rectCalls).toHaveLength(2);
+    expect(rectCalls[1].args).toEqual([75, 85, 50, 30, { strokeColor: SELECTION_STROKE_COLOR, strokeWidth: 1 }]);
 
-      // Hover highlight should be larger (8px padding on each side)
-      expect(rectCalls[1].args[2]).toBe(rect.width + 16);
-      expect(rectCalls[1].args[3]).toBe(rect.height + 16);
+    // Four corner handles: gray rings with white fill.
+    const handles = handleCalls();
+    expect(handles.map((c) => [c.args[0], c.args[1]])).toEqual([
+      [75, 85],
+      [125, 85],
+      [75, 115],
+      [125, 115],
+    ]);
+  });
 
-      // Hover highlight position should be offset by -8
-      expect(rectCalls[1].args[0]).toBe(rect.x - 8);
-      expect(rectCalls[1].args[1]).toBe(rect.y - 8);
-    });
+  it('draws the selection box around a selected circle at its bounding box', () => {
+    const entity = addShape('c1', CircleComponent, { x: 100, y: 100, radius: 40 });
+    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+    selectionComp.addEntity(entity);
+    selectionEntity.addComponent(RectangleComponent, { x: 60, y: 60, width: 80, height: 80 });
 
-    it('draws center dots on shapes', () => {
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      renderEntities(mockRenderer, [{ rect }]);
+    system.update(0);
 
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(dotCalls.length).toBe(1);
+    const rectCalls = calls('rectangle');
+    expect(rectCalls).toHaveLength(1);
+    expect(rectCalls[0].args).toEqual([60, 60, 80, 80, { strokeColor: SELECTION_STROKE_COLOR, strokeWidth: 1 }]);
+    expect(handleCalls()).toHaveLength(4);
+  });
 
-      // Dot should be at center - 1
-      // centerX = 75 + 50/2 = 100, centerY = 85 + 30/2 = 100
-      expect(dotCalls[0].args[0]).toBe(99);  // 100 - 1
-      expect(dotCalls[0].args[1]).toBe(99);  // 100 - 1
-    });
+  it('draws endpoint handles instead of a box for a single selected line', () => {
+    const entity = addShape('l1', LineComponent, { x1: 10, y1: 20, x2: 60, y2: 80 });
+    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+    selectionComp.addEntity(entity);
+    selectionEntity.addComponent(RectangleComponent, { x: 10, y: 20, width: 50, height: 60 });
 
-    it('handles multiple entities', () => {
-      const rect1: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      const rect2: RectData = { x: 170, y: 180, width: 60, height: 40 };
+    system.update(0);
 
-      renderEntities(mockRenderer, [
-        { rect: rect1 },
-        { rect: rect2 },
-      ]);
+    // Only the line itself - no selection rectangle.
+    expect(calls('rectangle')).toHaveLength(0);
+    const handles = handleCalls();
+    expect(handles.map((c) => [c.args[0], c.args[1]])).toEqual([
+      [10, 20],
+      [60, 80],
+    ]);
+  });
 
-      // Should draw 2 rectangles and 2 dots
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(rectCalls.length).toBe(2);
-      expect(dotCalls.length).toBe(2);
-    });
+  it('draws no overlay when nothing is selected', () => {
+    addShape('r1', RectangleComponent, { x: 75, y: 85, width: 50, height: 30 });
+    system.update(0);
 
-    it('handles empty entity list', () => {
-      renderEntities(mockRenderer, []);
-
-      // Should only clear, no drawing calls
-      expect(mockRenderer.clear).toHaveBeenCalledTimes(1);
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(rectCalls.length).toBe(0);
-      expect(dotCalls.length).toBe(0);
-    });
-
-    it('selection takes precedence over mouse over', () => {
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-      renderEntities(mockRenderer, [{ rect, isSelection: true, isMouseOver: true }]);
-
-      // Selection should take precedence - only blue rectangle, no gray hover
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      expect(rectCalls.length).toBe(1);
-      expect(rectCalls[0].args[4]).toEqual({ strokeColor: 'blue' });
-    });
-
-    it('uses correct coordinates with top-left based rectangle', () => {
-      // Rectangle at top-left (75, 85) with width 50, height 30
-      // center should be (100, 100)
-      const rect: RectData = { x: 75, y: 85, width: 50, height: 30 };
-
-      renderEntities(mockRenderer, [{ rect }]);
-
-      const rectCalls = mockRenderer._calls.filter(c => c.method === 'rectangle');
-      expect(rectCalls[0].args[0]).toBe(75);  // x
-      expect(rectCalls[0].args[1]).toBe(85);  // y
-      expect(rectCalls[0].args[2]).toBe(50);  // width
-      expect(rectCalls[0].args[3]).toBe(30);  // height
-
-      // Center dot should be at (100, 100) - 1 = (99, 99)
-      const dotCalls = mockRenderer._calls.filter(c => c.method === 'dot');
-      expect(dotCalls[0].args[0]).toBe(99);
-      expect(dotCalls[0].args[1]).toBe(99);
-    });
+    expect(calls('rectangle')).toHaveLength(1);
+    expect(handleCalls()).toHaveLength(0);
   });
 });

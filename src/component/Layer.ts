@@ -7,13 +7,7 @@ export interface LayerProps {
 }
 
 export default class Layer extends Component<LayerProps> {
-  constructor(
-    public properties: LayerProps = {
-      id: "default-layer",
-      zIndex: 0,
-      visible: true,
-    }
-  ) {
+  constructor(public properties: LayerProps) {
     super(properties);
   }
 

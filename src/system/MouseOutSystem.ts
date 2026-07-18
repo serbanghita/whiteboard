@@ -1,8 +1,9 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
-import RectangleComponent from "../component/RectangleComponent";
 import IsMouseOver from "../component/IsMouseOver";
 import MouseComponent from "../component/MouseComponent";
-import { pointInRectangle } from "../collision";
+import ToolStateComponent from "../component/ToolStateComponent";
+import { hitTestEntity } from "../shape";
+import { getCameraScale } from "../camera";
 
 export default class MouseOutSystem extends System {
   public constructor(
@@ -16,11 +17,15 @@ export default class MouseOutSystem extends System {
     const cursor = this.world.getEntity('cursor') as Entity;
     const mouseComp = cursor.getComponent(MouseComponent);
 
-    // @todo Optimisation: with quad trees.
-    this.query.execute().forEach((entity) => {
-      const rectComp = entity.getComponent(RectangleComponent);
+    // Outside cursor mode there is no hover feedback at all - clear any
+    // leftover hover tags (e.g. from before a tool switch).
+    const toolEntity = this.world.getEntity('tool');
+    const isCursorMode = !toolEntity || toolEntity.getComponent(ToolStateComponent).currentTool === 'cursor';
 
-      if (!pointInRectangle(mouseComp.x, mouseComp.y, rectComp.x, rectComp.y, rectComp.width, rectComp.height)) {
+    // @todo Optimisation: with quad trees.
+    const scale = getCameraScale(this.world);
+    this.query.execute().forEach((entity) => {
+      if (!isCursorMode || !hitTestEntity(entity, mouseComp.x, mouseComp.y, scale)) {
         entity.removeComponent(IsMouseOver);
       }
     });

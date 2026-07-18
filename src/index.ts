@@ -5,8 +5,11 @@ import {
   mousePress,
   mouseRelease,
   initFloatingMenu,
-  initKeyboardEvents
+  initKeyboardEvents,
+  resizeCanvasToViewport,
+  wheel
 } from "./render";
+import { applyWheel, screenToWorld } from "./camera";
 import { WebGLRenderer } from "./renderer";
 import { World } from "@serbanghita-gamedev/ecs";
 
@@ -23,6 +26,7 @@ import IsMousePressed from "./component/IsMousePressed";
 import ToolStateComponent from "./component/ToolStateComponent";
 import DrawnOnLayer from "./component/DrawnOnLayer";
 import Layer from "./component/Layer";
+import CameraComponent from "./component/CameraComponent";
 
 // Systems
 import RenderingSystem from "./system/RenderSystem";
@@ -31,6 +35,8 @@ import MousePressSystem from "./system/MousePressSystem";
 import MouseOverSystem from "./system/MouseOverSystem";
 import MouseOutSystem from "./system/MouseOutSystem";
 import DragSystem from "./system/DragSystem";
+import ResizeSystem from "./system/ResizeSystem";
+import ConnectionSystem from "./system/ConnectionSystem";
 import ToolStateSystem from "./system/ToolStateSystem";
 import RectangleDrawSystem from "./system/RectangleDrawSystem";
 import CircleDrawSystem from "./system/CircleDrawSystem";
@@ -42,6 +48,14 @@ import LineDrawSystem from "./system/LineDrawSystem";
 const $wrapper = createWrapper('canvas-wrapper');
 const { $canvas, gl } = createCanvas("canvas");
 const renderer = new WebGLRenderer(gl);
+// Drawing coordinates are CSS pixels (matching mouse offsetX/offsetY); the
+// backing store is devicePixelRatio-scaled, so the renderer needs the logical size.
+renderer.setResolution(window.innerWidth, window.innerHeight);
+
+window.addEventListener('resize', () => {
+  const { width, height } = resizeCanvasToViewport();
+  renderer.setResolution(width, height);
+});
 
 /**
  * ECS World
@@ -63,7 +77,8 @@ world.registerComponents([
   IsSelected,
   ToolStateComponent,
   DrawnOnLayer,
-  Layer
+  Layer,
+  CameraComponent
 ]);
 
 /**
@@ -82,32 +97,28 @@ selection.addComponent(SelectionRectangleComponent);
 
 // Tool entity - manages current tool state
 const tool = world.createEntity('tool');
-tool.addComponent(ToolStateComponent);
+tool.addComponent(ToolStateComponent, { currentTool: "cursor", drawState: "IDLE" });
 
 // Default layer entity
 const defaultLayer = world.createEntity('default-layer');
 defaultLayer.addComponent(Layer, { id: 'default-layer', zIndex: 0, visible: true });
 
-/**
- * Demo Entities
- * ---------------
- * These are sample shapes for testing. Remove in production.
- */
-const shape1 = world.createEntity("shape1");
-shape1.addComponent(RectangleComponent, { x: 120, y: 120, width: 100, height: 200, strokeColor: 'black' });
-shape1.addComponent(IsRendered);
-
-const shape2 = world.createEntity("shape2");
-shape2.addComponent(RectangleComponent, { x: 300, y: 200, width: 100, height: 100, strokeColor: 'black' });
-shape2.addComponent(IsRendered);
+// Camera entity - the view transform (zoom + pan). Shapes keep world
+// coordinates; mouse input is converted to world space at the handlers below.
+const camera = world.createEntity('camera');
+camera.addComponent(CameraComponent, { x: 0, y: 0, scale: 1 });
 
 /**
  * Queries
  */
+const SHAPE_COMPONENTS = [RectangleComponent, CircleComponent, LineComponent];
+
 const allRenderableQuery = world.createQuery("renderables", { all: [IsRendered] });
-const allRectanglesWithoutSelectionQuery = world.createQuery("rectNoSel", { all: [RectangleComponent], none: [SelectionRectangleComponent] });
-const allRectanglesForMouseOverQuery = world.createQuery("rectMouseOver", { all: [RectangleComponent], none: [IsMouseOver] });
-const allRectanglesForMouseOutQuery = world.createQuery("rectMouseOut", { all: [RectangleComponent, IsMouseOver] });
+// The selection entity itself carries a RectangleComponent (its bounding box),
+// so shape queries must exclude it.
+const selectableShapesQuery = world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
+const shapesForMouseOverQuery = world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent] });
+const shapesForMouseOutQuery = world.createQuery("shapesMouseOut", { all: [IsMouseOver], any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
 const selectionQuery = world.createQuery("selection", { all: [SelectionRectangleComponent] });
 const toolQuery = world.createQuery("tool", { all: [ToolStateComponent] });
 
@@ -124,11 +135,14 @@ world.createSystem(RectangleDrawSystem, toolQuery);
 world.createSystem(CircleDrawSystem, toolQuery);
 world.createSystem(LineDrawSystem, toolQuery);
 
-// Mouse interaction systems
-world.createSystem(MousePressSystem, allRectanglesWithoutSelectionQuery);
+// ResizeSystem and ConnectionSystem must run before MousePressSystem/DragSystem:
+// a press landing on a handle claims the interaction and the others skip it.
+world.createSystem(ResizeSystem, selectionQuery);
+world.createSystem(ConnectionSystem, selectionQuery);
+world.createSystem(MousePressSystem, selectableShapesQuery);
 world.createSystem(DragSystem, selectionQuery);
-world.createSystem(MouseOverSystem, allRectanglesForMouseOverQuery);
-world.createSystem(MouseOutSystem, allRectanglesForMouseOutQuery);
+world.createSystem(MouseOverSystem, shapesForMouseOverQuery);
+world.createSystem(MouseOutSystem, shapesForMouseOutQuery);
 world.createSystem(SelectionSystem, selectionQuery);
 
 // Rendering - must be last
@@ -137,19 +151,40 @@ world.createSystem(RenderingSystem, allRenderableQuery, renderer);
 /**
  * Input Handlers
  */
+// Mouse events arrive in screen space (CSS px) and are converted to world
+// space here, at the boundary - every system downstream works purely in
+// world coordinates.
 mouseMove((e) => {
+  const cam = camera.getComponent(CameraComponent);
   const mouse = cursor.getComponent(MouseComponent);
-  mouse.setXY(e.offsetX, e.offsetY);
+  mouse.screenX = e.offsetX;
+  mouse.screenY = e.offsetY;
+  const w = screenToWorld(cam, e.offsetX, e.offsetY);
+  mouse.setXY(w.x, w.y);
 });
 
 mousePress((e) => {
+  const cam = camera.getComponent(CameraComponent);
+  const mouse = cursor.getComponent(MouseComponent);
+  mouse.screenX = e.offsetX;
+  mouse.screenY = e.offsetY;
+  const w = screenToWorld(cam, e.offsetX, e.offsetY);
+  mouse.setXY(w.x, w.y);
+  mouse.press(w.x, w.y);
   if (!cursor.hasComponent(IsMousePressed)) {
     cursor.addComponent(IsMousePressed);
   }
 });
 
-mouseRelease((e) => {
+mouseRelease(() => {
+  cursor.getComponent(MouseComponent).release();
   cursor.removeComponent(IsMousePressed);
+});
+
+// Ctrl/cmd+wheel (trackpad pinch) zooms at the cursor, plain wheel pans.
+wheel((e) => {
+  e.preventDefault();
+  applyWheel(camera.getComponent(CameraComponent), cursor.getComponent(MouseComponent), e);
 });
 
 /**

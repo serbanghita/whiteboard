@@ -4,16 +4,19 @@ import MouseComponent from "../component/MouseComponent";
 import IsMousePressed from "../component/IsMousePressed";
 import CircleComponent from "../component/CircleComponent";
 import IsRendered from "../component/IsRendered";
+import { autoSelectFreshShape } from "../autoSelect";
 
 const MIN_CIRCLE_RADIUS = 3;
 
 /**
  * CircleDrawSystem handles drawing circles.
- * State machine: IDLE -> (click) -> FIRST_POINT_SET -> (drag=preview, release=finalize) -> IDLE
+ * State machine: IDLE -> (press) -> FIRST_POINT_SET -> (drag=preview, release=finalize) -> IDLE
  * Circle fits in bounding box from start point to current mouse position.
  */
 export default class CircleDrawSystem extends System {
   private entityCounter = 0;
+  private lastPressCount = 0;
+  private lastReleaseCount = 0;
 
   public constructor(
     public world: World,
@@ -28,27 +31,36 @@ export default class CircleDrawSystem extends System {
 
     const toolState = toolEntity.getComponent(ToolStateComponent);
 
-    // Only handle circle mode
-    if (toolState.currentTool !== 'circle') return;
-
     const cursor = this.world.getEntity('cursor') as Entity;
     const mouseComp = cursor.getComponent(MouseComponent);
     const isMousePressed = cursor.hasComponent(IsMousePressed);
 
+    // Consume press/release edges every frame, even when another tool is
+    // active - otherwise edges from other modes replay when this tool resumes.
+    const pressEdge = mouseComp.pressCount > this.lastPressCount;
+    const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
+    this.lastPressCount = mouseComp.pressCount;
+    this.lastReleaseCount = mouseComp.releaseCount;
+
+    // Only handle circle mode
+    if (toolState.currentTool !== 'circle') return;
+
     // State machine: IDLE -> FIRST_POINT_SET -> IDLE
     if (toolState.drawState === 'IDLE') {
-      // Wait for mouse press to start drawing
-      if (isMousePressed) {
+      // Start drawing on a fresh press only (edge, not level): after Escape
+      // cancels a drawing the button is still held, and that must not
+      // immediately start a new one.
+      if (pressEdge) {
         toolState.drawState = 'FIRST_POINT_SET';
-        toolState.startX = mouseComp.x;
-        toolState.startY = mouseComp.y;
+        toolState.startX = mouseComp.pressX;
+        toolState.startY = mouseComp.pressY;
 
         // Create preview entity
         const entityId = `circle-${Date.now()}-${this.entityCounter++}`;
         const previewEntity = this.world.createEntity(entityId);
         previewEntity.addComponent(CircleComponent, {
-          x: mouseComp.x,
-          y: mouseComp.y,
+          x: mouseComp.pressX,
+          y: mouseComp.pressY,
           radius: 1,
           strokeColor: 'black'
         });
@@ -79,8 +91,9 @@ export default class CircleDrawSystem extends System {
         }
       }
 
-      // Finalize on mouse release
-      if (!isMousePressed) {
+      // Finalize on release: the edge catches a release+press pair landing
+      // between two frames; the level check covers a plain release.
+      if (releaseEdge || !isMousePressed) {
         if (toolState.previewEntityId) {
           const previewEntity = this.world.getEntity(toolState.previewEntityId);
           if (previewEntity) {
@@ -89,11 +102,14 @@ export default class CircleDrawSystem extends System {
             // Check minimum size
             if (circleComp.radius < MIN_CIRCLE_RADIUS) {
               // Cancel - too small
-              this.world.removeEntity(previewEntity);
+              this.world.removeEntity(previewEntity.id);
               console.log('Circle cancelled: too small');
             } else {
               // Keep the entity - drawing complete
               console.log(`Circle created: ${toolState.previewEntityId}`);
+              // Switch to the cursor tool with the fresh shape selected, so
+              // its handles show and it can be dragged right away.
+              autoSelectFreshShape(this.world, previewEntity);
             }
           }
         }

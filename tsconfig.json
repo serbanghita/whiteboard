@@ -1,10 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2022",                                  /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
-    "module": "commonjs",                                /* Specify what module code is generated. */
+    "module": "ESNext",                                  /* Specify what module code is generated. */
+    "moduleResolution": "bundler",                       /* Resolve modules like esbuild/vite do. */
+    "allowImportingTsExtensions": true,                  /* The local gamedev packages import their own files with .ts extensions. */
+    "noEmit": true,                                      /* esbuild does the emitting; tsc is typecheck-only. */
     "esModuleInterop": true,                             /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables 'allowSyntheticDefaultImports' for type compatibility. */
     "forceConsistentCasingInFileNames": true,            /* Ensure that casing is correct in imports. */
     "strict": true,                                      /* Enable all strict type-checking options. */
+    "strictFunctionTypes": false,                        /* The ecs ComponentConstructor type relies on bivariant constructor params. */
     "skipLibCheck": true,                                 /* Skip type checking all .d.ts files. */
     "rootDirs": ["src"],
     "sourceMap": true,

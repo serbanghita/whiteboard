@@ -1,18 +1,22 @@
 import { Component, Entity } from "@serbanghita-gamedev/ecs";
 
 export type SelectionRectangleComponentInitProps = {
-  entities: Entity[]
+  entities?: Entity[]
 }
 
-export default class SelectionRectangleComponent extends Component {
+export default class SelectionRectangleComponent extends Component<SelectionRectangleComponentInitProps> {
   // The current selected Entities.
-  public entities: Map<string, Entity> = new Map();
+  public entities: Map<string, Entity>;
   public isDirty: boolean = true;
+  // Set by ResizeSystem while a handle drag is active; MousePressSystem and
+  // DragSystem skip presses claimed by a resize.
+  public resizeHandleId: string | null = null;
+  public connectionHandleId: string | null = null;
 
   constructor(public properties: SelectionRectangleComponentInitProps) {
     super(properties);
 
-    // this.entities = new Map(properties.entities.map((entity) => [entity.id, entity]));
+    this.entities = new Map((properties.entities ?? []).map((entity) => [entity.id, entity]));
   }
 
   public hasEntity(entity: Entity) {

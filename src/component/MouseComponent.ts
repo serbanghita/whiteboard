@@ -6,21 +6,39 @@ export interface MouseComponentProps {
 }
 
 export default class MouseComponent extends Component<MouseComponentProps> {
-  public isClicking: boolean = false;
-  public prevX: number = 0;
-  public prevY: number = 0;
+  // Press/release tracking recorded at DOM-event time. Systems compare the
+  // counters against their own last-seen values to detect edges; unlike
+  // frame-sampling the IsMousePressed tag, this catches a release+press pair
+  // that lands between two frames.
+  public pressCount: number = 0;
+  public releaseCount: number = 0;
+  // Position of the last mousedown, captured at event time (a frame-time
+  // sample would drop any movement between the event and the next frame).
+  public pressX: number = 0;
+  public pressY: number = 0;
+  // Last raw screen (CSS-pixel) position. x/y hold world coordinates; the
+  // wheel handler re-derives them from these when the camera zooms/pans
+  // without the mouse moving.
+  public screenX: number = 0;
+  public screenY: number = 0;
 
-  constructor(public properties: MouseComponentProps = { x: 0, y: 0 }) {
+  constructor(public properties: MouseComponentProps) {
     super(properties);
-    this.prevX = properties.x;
-    this.prevY = properties.y;
   }
 
   public setXY(x: number, y: number): void {
-    this.prevX = this.properties.x;
-    this.prevY = this.properties.y;
     this.properties.x = x;
     this.properties.y = y;
+  }
+
+  public press(x: number, y: number): void {
+    this.pressX = x;
+    this.pressY = y;
+    this.pressCount++;
+  }
+
+  public release(): void {
+    this.releaseCount++;
   }
 
   public get x(): number {
@@ -28,7 +46,6 @@ export default class MouseComponent extends Component<MouseComponentProps> {
   }
 
   public set x(value: number) {
-    this.prevX = this.properties.x;
     this.properties.x = value;
   }
 
@@ -37,15 +54,6 @@ export default class MouseComponent extends Component<MouseComponentProps> {
   }
 
   public set y(value: number) {
-    this.prevY = this.properties.y;
     this.properties.y = value;
-  }
-
-  public get deltaX(): number {
-    return this.properties.x - this.prevX;
-  }
-
-  public get deltaY(): number {
-    return this.properties.y - this.prevY;
   }
 }

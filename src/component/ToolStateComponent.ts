@@ -12,15 +12,7 @@ export interface ToolStateComponentProps {
 }
 
 export default class ToolStateComponent extends Component<ToolStateComponentProps> {
-  constructor(
-    public properties: ToolStateComponentProps = {
-      currentTool: "cursor",
-      drawState: "IDLE",
-      startX: undefined,
-      startY: undefined,
-      previewEntityId: undefined,
-    }
-  ) {
+  constructor(public properties: ToolStateComponentProps) {
     super(properties);
   }
 

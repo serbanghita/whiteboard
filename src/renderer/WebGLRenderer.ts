@@ -11,6 +11,8 @@ export default class WebGLRenderer implements IRenderer {
   private positionAttributeLocation: number;
   private resolutionUniformLocation: WebGLUniformLocation;
   private colorUniformLocation: WebGLUniformLocation;
+  private translateUniformLocation: WebGLUniformLocation;
+  private scaleUniformLocation: WebGLUniformLocation;
 
   constructor(private gl: WebGLRenderingContext) {
     // Initialize shader program
@@ -21,6 +23,8 @@ export default class WebGLRenderer implements IRenderer {
     this.positionAttributeLocation = this.shaderProgram.getAttributeLocation("a_position");
     this.resolutionUniformLocation = this.shaderProgram.getUniformLocation("u_resolution");
     this.colorUniformLocation = this.shaderProgram.getUniformLocation("u_color");
+    this.translateUniformLocation = this.shaderProgram.getUniformLocation("u_translate");
+    this.scaleUniformLocation = this.shaderProgram.getUniformLocation("u_scale");
 
     // Create position buffer
     const buffer = gl.createBuffer();
@@ -31,6 +35,19 @@ export default class WebGLRenderer implements IRenderer {
 
     // Set resolution uniform
     gl.uniform2f(this.resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
+
+    // Identity camera, so camera-less usage keeps the old pixel mapping
+    gl.uniform2f(this.translateUniformLocation, 0, 0);
+    gl.uniform1f(this.scaleUniformLocation, 1);
+  }
+
+  public setResolution(width: number, height: number): void {
+    this.gl.uniform2f(this.resolutionUniformLocation, width, height);
+  }
+
+  public setCamera(scale: number, x: number, y: number): void {
+    this.gl.uniform2f(this.translateUniformLocation, x, y);
+    this.gl.uniform1f(this.scaleUniformLocation, scale);
   }
 
   public clear(): void {

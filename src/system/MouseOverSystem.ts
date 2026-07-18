@@ -1,8 +1,9 @@
 import { Entity, Query, System, World } from "@serbanghita-gamedev/ecs";
-import RectangleComponent from "../component/RectangleComponent";
 import IsMouseOver from "../component/IsMouseOver";
 import MouseComponent from "../component/MouseComponent";
-import { pointInRectangle } from "../collision";
+import ToolStateComponent from "../component/ToolStateComponent";
+import { hitTestEntity } from "../shape";
+import { getCameraScale } from "../camera";
 
 export default class MouseOverSystem extends System {
   public constructor(
@@ -13,14 +14,20 @@ export default class MouseOverSystem extends System {
   }
 
   public update(now: number): void {
+    // Hover feedback only makes sense in cursor mode - while drawing, the
+    // preview shape follows the cursor and would always be "hovered".
+    const toolEntity = this.world.getEntity('tool');
+    if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== 'cursor') {
+      return;
+    }
+
     const cursor = this.world.getEntity('cursor') as Entity;
     const mouseComp = cursor.getComponent(MouseComponent);
 
     // @todo Optimisation: with quad trees.
+    const scale = getCameraScale(this.world);
     this.query.execute().forEach((entity) => {
-      const rectComp = entity.getComponent(RectangleComponent);
-
-      if (pointInRectangle(mouseComp.x, mouseComp.y, rectComp.x, rectComp.y, rectComp.width, rectComp.height)) {
+      if (hitTestEntity(entity, mouseComp.x, mouseComp.y, scale)) {
         entity.addComponent(IsMouseOver);
       }
     });

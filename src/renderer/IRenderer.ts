@@ -12,6 +12,22 @@ export interface TextOptions {
 
 export interface IRenderer {
   /**
+   * Set the logical resolution used to map drawing coordinates to the canvas.
+   * Pass CSS-pixel dimensions when the backing store is scaled by devicePixelRatio.
+   * @param width Logical width in CSS pixels
+   * @param height Logical height in CSS pixels
+   */
+  setResolution(width: number, height: number): void;
+
+  /**
+   * Set the camera transform applied to all drawing coordinates.
+   * @param scale Zoom factor: screen pixels per world unit
+   * @param x World X of the viewport's top-left corner
+   * @param y World Y of the viewport's top-left corner
+   */
+  setCamera(scale: number, x: number, y: number): void;
+
+  /**
    * Clear the entire canvas
    */
   clear(): void;

@@ -215,6 +215,10 @@ export default class WebGLRenderer implements IRenderer {
     this.drawLineInternal(x1, y1, x2, y2, lineWidth);
   }
 
+  public maxTextureSize(): number {
+    return this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
+  }
+
   public createTextureFromCanvas(source: HTMLCanvasElement): TextureHandle {
     const gl = this.gl;
     const texture = gl.createTexture();

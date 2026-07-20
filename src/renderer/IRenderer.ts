@@ -62,6 +62,11 @@ export interface IRenderer {
   line(x1: number, y1: number, x2: number, y2: number, options?: DrawOptions): void;
 
   /**
+   * Largest texture dimension the backend supports, in pixels.
+   */
+  maxTextureSize(): number;
+
+  /**
    * Upload a rasterized canvas as a GPU texture.
    * @param source Offscreen canvas holding the rasterized pixels
    */

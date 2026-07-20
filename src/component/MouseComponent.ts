@@ -21,6 +21,11 @@ export default class MouseComponent extends Component<MouseComponentProps> {
   // without the mouse moving.
   public screenX: number = 0;
   public screenY: number = 0;
+  // Double-click tracking, same event-time edge-counter idiom as press():
+  // TextEditSystem compares dblClickCount against its own last-seen value.
+  public dblClickCount: number = 0;
+  public dblClickX: number = 0;
+  public dblClickY: number = 0;
 
   constructor(public properties: MouseComponentProps) {
     super(properties);
@@ -39,6 +44,12 @@ export default class MouseComponent extends Component<MouseComponentProps> {
 
   public release(): void {
     this.releaseCount++;
+  }
+
+  public doubleClick(x: number, y: number): void {
+    this.dblClickX = x;
+    this.dblClickY = y;
+    this.dblClickCount++;
   }
 
   public get x(): number {

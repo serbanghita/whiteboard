@@ -56,6 +56,12 @@ export default class ConnectionSystem extends System {
       return;
     }
 
+    // A press consumed by a text-edit click-away commit is suppressed for
+    // its entire hold - it must not start a connection drag.
+    if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+      return;
+    }
+
     const scale = getCameraScale(this.world);
 
     if (pressEdge) {

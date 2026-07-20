@@ -32,6 +32,12 @@ export default class MousePressSystem extends System {
       return;
     }
 
+    // A press consumed by a text-edit click-away commit is suppressed for
+    // its entire hold - it must not select or clear the selection.
+    if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+      return;
+    }
+
     if (!isClick) {
       return;
     }

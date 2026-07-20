@@ -64,6 +64,12 @@ export default class ResizeSystem extends System {
       return;
     }
 
+    // A press consumed by a text-edit click-away commit is suppressed for
+    // its entire hold - it must not start a resize.
+    if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+      return;
+    }
+
     if (pressEdge) {
       // Each new press re-evaluates: a press on a handle starts a resize,
       // anywhere else ends any active one (and falls through to the other

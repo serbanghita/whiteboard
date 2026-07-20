@@ -50,6 +50,14 @@ export default class DragSystem extends System {
       return;
     }
 
+    // A press consumed by a text-edit click-away commit is suppressed for
+    // its ENTIRE hold: DragSystem acts on IsMousePressed every frame (no
+    // edge gate before moveEntityBy), so this must sit in front of the
+    // movement logic or a click-away-and-hold would drag the shape.
+    if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+      return;
+    }
+
     // Only drag when mouse is pressed
     if (!cursor.hasComponent(IsMousePressed)) {
       this.lastX = null;

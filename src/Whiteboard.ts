@@ -34,6 +34,7 @@ import RectangleDrawSystem from "./system/RectangleDrawSystem";
 import CircleDrawSystem from "./system/CircleDrawSystem";
 import LineDrawSystem from "./system/LineDrawSystem";
 import LineAttachmentSystem from "./system/LineAttachmentSystem";
+import TextEditSystem from "./system/TextEditSystem";
 import HistorySystem from "./system/HistorySystem";
 
 export class Whiteboard {
@@ -189,6 +190,8 @@ export class Whiteboard {
     this.world.createSystem(LineDrawSystem, toolQuery);
     this.world.createSystem(ResizeSystem, selectionQuery);
     this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
+    // Text editing targets the same rect+circle set a connection can snap to.
+    this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper);
     this.world.createSystem(MousePressSystem, selectableShapesQuery);
     this.world.createSystem(DragSystem, selectionQuery);
     // After every system that moves/resizes shapes, before Selection/Render:
@@ -202,7 +205,18 @@ export class Whiteboard {
     this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
   }
 
+  // Commits an open text edit by blurring its textarea (the blur handler is
+  // the commit); used before camera/viewport changes that would leave the
+  // overlay's geometry stale.
+  private commitTextEditIfAny() {
+    const toolState = this.world.getEntity('tool')?.getComponent(ToolStateComponent);
+    if (toolState?.editingEntityId && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }
+
   private resize() {
+    this.commitTextEditIfAny();
     const width = this.$wrapper.clientWidth || window.innerWidth;
     const height = this.$wrapper.clientHeight || window.innerHeight;
     const pixelRatio = window.devicePixelRatio || 1;
@@ -250,8 +264,18 @@ export class Whiteboard {
     };
     window.addEventListener('mouseup', this.boundMouseup, { capture: true });
 
+    // Double-click starts text editing (consumed by TextEditSystem via the
+    // same event-time edge-counter idiom as press()).
+    this.$canvas.addEventListener('dblclick', (e) => {
+      const w = screenToWorld(this.camera, e.offsetX, e.offsetY);
+      this.cursor.getComponent(MouseComponent).doubleClick(w.x, w.y);
+    });
+
     this.$canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      // The overlay's geometry cannot follow the camera - commit first (the
+      // blur handler is the commit), then zoom/pan.
+      this.commitTextEditIfAny();
       applyWheel(this.camera, this.cursor.getComponent(MouseComponent), e);
     }, { passive: false });
 
@@ -285,6 +309,13 @@ export class Whiteboard {
 
     this.boundKeydown = (e: KeyboardEvent) => {
       if (!this.isActive) return;
+
+      // While a text edit overlay is open, the textarea owns the keyboard:
+      // its native undo must win over the whiteboard's, and Escape commits
+      // the edit instead of cancelling a draw. (Belt: the textarea stops
+      // propagation; this check is the braces.)
+      const toolStateGuard = this.world.getEntity('tool')?.getComponent(ToolStateComponent);
+      if (toolStateGuard?.editingEntityId) return;
 
       // Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z or Ctrl+Y = redo.
       if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {

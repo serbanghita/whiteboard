@@ -1,11 +1,15 @@
-import { System, Query, World } from "@serbanghita-gamedev/ecs";
+import { System, Query, World, Entity } from "@serbanghita-gamedev/ecs";
 import RectangleComponent from "../component/RectangleComponent";
 import CircleComponent from "../component/CircleComponent";
 import LineComponent from "../component/LineComponent";
+import TextComponent from "../component/TextComponent";
+import ToolStateComponent from "../component/ToolStateComponent";
 import { IRenderer } from "../renderer";
 import { getConnectionPoints, getSelectionHandles, HANDLE_RADIUS } from "../handles";
 import CameraComponent from "../component/CameraComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
+import { getInteriorBox } from "../textLayout";
+import TextTextureCache from "../textRaster";
 
 // Selection visuals: a tight blue bounding box around the selected shapes,
 // with gray ring resize handles at its corners. A single selected line gets
@@ -17,12 +21,17 @@ const HANDLE_STROKE_COLOR = "rgb(170 170 170)";
 const HANDLE_STROKE_WIDTH = 3;
 
 export default class RenderingSystem extends System {
+  // Per-entity text textures; retained state lives here, the renderer stays
+  // immediate-mode.
+  private textCache: TextTextureCache;
+
   public constructor(
     public world: World,
     public query: Query,
     public renderer: IRenderer,
   ) {
     super(world, query);
+    this.textCache = new TextTextureCache(renderer);
   }
 
   public update(now: number): void {
@@ -39,8 +48,19 @@ export default class RenderingSystem extends System {
 
     this.renderer.clear();
 
+    const toolEntity = this.world.getEntity('tool');
+    const editingEntityId = toolEntity && toolEntity.hasComponent(ToolStateComponent)
+      ? toolEntity.getComponent(ToolStateComponent).editingEntityId
+      : null;
+    const selectionEntity = this.world.getEntity('selection');
+    const selectionComp = selectionEntity ? selectionEntity.getComponent(SelectionRectangleComponent) : null;
+    // Entities whose text texture is in use this frame; everything else in
+    // the cache is swept below.
+    const liveTextIds = new Set<string>();
+
     // Shapes. Hovering has no visual effect - feedback only exists for the
-    // selected shapes, via the overlay below.
+    // selected shapes, via the overlay below. Painter's order: each shape's
+    // text draws right after the shape, so later shapes still cover it.
     this.query.execute().forEach((entity) => {
       if (entity.hasComponent(RectangleComponent)) {
         const comp = entity.getComponent(RectangleComponent);
@@ -48,12 +68,14 @@ export default class RenderingSystem extends System {
           strokeColor: comp.strokeColor || "black",
           fillColor: comp.fillColor
         });
+        this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(CircleComponent)) {
         const comp = entity.getComponent(CircleComponent);
         this.renderer.circle(comp.x, comp.y, comp.radius, {
           strokeColor: comp.strokeColor || "black",
           fillColor: comp.fillColor
         });
+        this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(LineComponent)) {
         const comp = entity.getComponent(LineComponent);
         this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
@@ -63,11 +85,47 @@ export default class RenderingSystem extends System {
       }
     });
 
+    this.textCache.sweep(liveTextIds);
+
     // Selection overlay - always on top of the shapes.
     this.renderSelectionOverlay(scale);
 
     // Snap targets while a connection line is being dragged - on top of all.
     this.renderConnectionTargets(scale);
+  }
+
+  /**
+   * Draws an entity's text block as a textured quad over its interior box.
+   * Skipped while the entity is being edited (the DOM overlay replaces it)
+   * and for empty/absent text. While the entity is being handle-resized the
+   * cached texture is stretched to the live box instead of re-rasterizing
+   * every frame; it re-wraps crisply when the handle is released.
+   */
+  private drawEntityText(
+    entity: Entity,
+    scale: number,
+    editingEntityId: string | null,
+    selectionComp: SelectionRectangleComponent | null,
+    liveTextIds: Set<string>,
+  ): void {
+    if (entity.id === editingEntityId || !entity.hasComponent(TextComponent)) {
+      return;
+    }
+    const text = entity.getComponent(TextComponent);
+    if (!text.content) {
+      return;
+    }
+    const box = getInteriorBox(entity);
+    if (!box) {
+      return;
+    }
+
+    liveTextIds.add(entity.id);
+    const freezeSize = !!selectionComp?.resizeHandleId && selectionComp.hasEntity(entity);
+    const texture = this.textCache.get(entity.id, text.properties, box, scale, freezeSize);
+    if (texture) {
+      this.renderer.texturedQuad(texture, box.x, box.y, box.width, box.height);
+    }
   }
 
   /**

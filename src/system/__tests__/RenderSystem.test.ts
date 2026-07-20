@@ -7,6 +7,7 @@ import LineComponent from '../../component/LineComponent';
 import IsRendered from '../../component/IsRendered';
 import IsMouseOver from '../../component/IsMouseOver';
 import SelectionRectangleComponent from '../../component/SelectionRectangleComponent';
+import TextComponent from '../../component/TextComponent';
 import { IRenderer } from '../../renderer';
 
 /**
@@ -37,11 +38,18 @@ function createMockRenderer(): IRenderer & { _calls: RecordedCall[] } {
     line: vi.fn((x1, y1, x2, y2, options) =>
       calls.push({ method: 'line', args: [x1, y1, x2, y2, options] })
     ),
-    text: vi.fn((str, x, y, options) =>
-      calls.push({ method: 'text', args: [str, x, y, options] })
-    ),
     dot: vi.fn((x, y, options) =>
       calls.push({ method: 'dot', args: [x, y, options] })
+    ),
+    maxTextureSize: vi.fn(() => 4096),
+    createTextureFromCanvas: vi.fn((source) => {
+      const handle = { _texture: true };
+      calls.push({ method: 'createTextureFromCanvas', args: [source] });
+      return handle;
+    }),
+    deleteTexture: vi.fn((handle) => calls.push({ method: 'deleteTexture', args: [handle] })),
+    texturedQuad: vi.fn((handle, x, y, width, height) =>
+      calls.push({ method: 'texturedQuad', args: [handle, x, y, width, height] })
     ),
   };
 }
@@ -58,6 +66,7 @@ registryWorld.registerComponents([
   CircleComponent,
   LineComponent,
   SelectionRectangleComponent,
+  TextComponent,
 ]);
 
 describe('RenderSystem', () => {

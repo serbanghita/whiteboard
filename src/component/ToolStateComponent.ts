@@ -12,6 +12,19 @@ export interface ToolStateComponentProps {
 }
 
 export default class ToolStateComponent extends Component<ToolStateComponentProps> {
+  // Text-edit state, plain class fields like MouseComponent's counters (not
+  // constructor props, so addComponent call sites stay unchanged and nothing
+  // is implicitly undefined). reset() touches neither.
+  //
+  // Entity whose text is being edited in the DOM overlay; single source of
+  // truth read by RenderSystem and the keyboard/history guards.
+  public editingEntityId: string | null = null;
+  // pressCount value recorded when a textarea click-away commit consumed a
+  // canvas press. Press consumers skip any press with
+  // pressCount <= suppressedPressCount for its ENTIRE hold (the counter is
+  // monotonic), so the commit click cannot select/drag/resize/connect.
+  public suppressedPressCount = 0;
+
   constructor(public properties: ToolStateComponentProps) {
     super(properties);
   }

@@ -18,7 +18,9 @@ import ToolStateComponent from "../component/ToolStateComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import LineAttachmentComponent from "../component/LineAttachmentComponent";
 import CameraComponent from "../component/CameraComponent";
+import TextComponent from "../component/TextComponent";
 import { applyWheel, screenToWorld, worldToScreen } from "../camera";
+import { setMeasurer } from "../textLayout";
 
 let world: World;
 let cursor: Entity;
@@ -106,6 +108,10 @@ beforeAll(async () => {
     unobserve() {}
     disconnect() {}
   });
+
+  // jsdom's measureText returns 0 - inject a deterministic monospace
+  // measurer through the layout module's explicit seam (no vi.mock).
+  setMeasurer((text, fontSize) => text.length * fontSize * 0.6);
 
   const { Whiteboard } = await import("../Whiteboard");
   whiteboard = new Whiteboard(document.body);
@@ -1274,8 +1280,188 @@ describe("DOM event listeners in index.ts", () => {
     // wheel
     const wheelEvent = new window.WheelEvent("wheel", { deltaY: 100 });
     canvas.dispatchEvent(wheelEvent);
-    
+
     // Check that we didn't crash
     expect(true).toBe(true);
+  });
+});
+
+// Mirrors the dblclick handler in Whiteboard.bindEvents - like press(), the
+// ECS is driven directly because jsdom MouseEvents have no settable offsetX/Y.
+function dblclick(screenX: number, screenY: number) {
+  const w = screenToWorld(cameraComp(), screenX, screenY);
+  cursor.getComponent(MouseComponent).doubleClick(w.x, w.y);
+}
+
+function activeTextarea(): HTMLTextAreaElement | null {
+  return document.querySelector("textarea");
+}
+
+function commitViaBlur(textarea: HTMLTextAreaElement) {
+  textarea.dispatchEvent(new window.FocusEvent("blur"));
+}
+
+function toolStateComp(): ToolStateComponent {
+  return world.getEntity("tool")!.getComponent(ToolStateComponent);
+}
+
+// Full realistic double-click: the two single click pairs land first (they
+// select the shape), then the dblclick event fires.
+function openTextEditor(x: number, y: number): HTMLTextAreaElement {
+  press(x, y);
+  frame();
+  release();
+  frame();
+  press(x, y);
+  frame();
+  release();
+  frame();
+  dblclick(x, y);
+  frame();
+  const textarea = activeTextarea();
+  expect(textarea).toBeTruthy();
+  return textarea!;
+}
+
+describe("text editing", () => {
+  it("double-click opens a textarea over the shape (the preceding clicks selected it) and blur commits", () => {
+    const entity = drawRectangle(2200, 100, 2350, 220);
+    const textarea = openTextEditor(2275, 160);
+
+    expect(selectionComp().hasEntity(entity)).toBe(true);
+    expect(toolStateComp().editingEntityId).toBe(entity.id);
+
+    textarea.value = "hello world";
+    commitViaBlur(textarea);
+    expect(activeTextarea()).toBeNull();
+    expect(toolStateComp().editingEntityId).toBeNull();
+    expect(entity.getComponent(TextComponent).content).toBe("hello world");
+
+    // A frame with committed text exercises layout -> raster -> texture.
+    frame();
+  });
+
+  it("double-click on empty canvas opens nothing", () => {
+    dblclick(2600, 2600);
+    frame();
+    expect(activeTextarea()).toBeNull();
+  });
+
+  it("re-opening shows the existing content; an empty commit removes the component", () => {
+    const entity = drawRectangle(2200, 300, 2350, 420);
+    let textarea = openTextEditor(2275, 360);
+    textarea.value = "abc";
+    commitViaBlur(textarea);
+
+    textarea = openTextEditor(2275, 360);
+    expect(textarea.value).toBe("abc");
+    textarea.value = "   ";
+    commitViaBlur(textarea);
+    expect(entity.hasComponent(TextComponent)).toBe(false);
+  });
+
+  it("Escape commits the text instead of cancelling, and touches no draw state", () => {
+    const entity = drawRectangle(2200, 500, 2350, 620);
+    const textarea = openTextEditor(2275, 560);
+    textarea.value = "esc text";
+    textarea.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(activeTextarea()).toBeNull();
+    expect(entity.getComponent(TextComponent).content).toBe("esc text");
+    expect(world.getEntity(entity.id)).toBeDefined();
+    expect(toolStateComp().drawState).toBe("IDLE");
+  });
+
+  it("a click-away commit is suppressed: no selection change, no drag even while held", () => {
+    const entity = drawRectangle(2200, 700, 2350, 820);
+    const rect = entity.getComponent(RectangleComponent);
+    const textarea = openTextEditor(2275, 760);
+    textarea.value = "stay";
+
+    // Browser order on click-away: mousedown records the press, THEN blur
+    // commits. The press lands on empty canvas.
+    press(2600, 950);
+    commitViaBlur(textarea);
+    frame();
+
+    expect(entity.getComponent(TextComponent).content).toBe("stay");
+    // Suppressed press: selection not cleared by the empty-canvas click...
+    expect(selectionComp().hasEntity(entity)).toBe(true);
+    // ...and holding the button and moving does not drag the shape.
+    const xBefore = rect.x;
+    moveTo(2650, 1000);
+    frame();
+    expect(rect.x).toBe(xBefore);
+    release();
+    frame();
+  });
+
+  it("text round-trips through saveShapes/loadShapes; a textless snapshot removes text", () => {
+    const entity = drawRectangle(2200, 900, 2350, 1020);
+    const textarea = openTextEditor(2275, 960);
+    textarea.value = "persist";
+    commitViaBlur(textarea);
+
+    const snapshot = whiteboard.saveShapes();
+    whiteboard.loadShapes(snapshot);
+    expect(world.getEntity(entity.id)!.getComponent(TextComponent).content).toBe("persist");
+    // Byte-identical round-trip survives the text field.
+    expect(whiteboard.saveShapes()).toBe(snapshot);
+
+    const shapes = JSON.parse(snapshot) as any[];
+    shapes.forEach((shape) => delete shape.text);
+    whiteboard.loadShapes(JSON.stringify(shapes));
+    expect(world.getEntity(entity.id)!.hasComponent(TextComponent)).toBe(false);
+  });
+
+  it("an Escape-committed edit is exactly one undo step and survives redo", () => {
+    const entity = drawRectangle(2200, 1100, 2350, 1220);
+    const textarea = openTextEditor(2275, 1160);
+    textarea.value = "undo me";
+    textarea.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(entity.getComponent(TextComponent).content).toBe("undo me");
+
+    whiteboard.undo();
+    frame();
+    expect(world.getEntity(entity.id)!.hasComponent(TextComponent)).toBe(false);
+    // The shape itself is untouched - only the text edit was undone.
+    expect(world.getEntity(entity.id)!.getComponent(RectangleComponent).x).toBe(2200);
+
+    whiteboard.redo();
+    frame();
+    expect(world.getEntity(entity.id)!.getComponent(TextComponent).content).toBe("undo me");
+  });
+
+  it("Ctrl/Cmd+Z while editing is blocked by the edit guard, not just hover gating", () => {
+    drawRectangle(2200, 1300, 2350, 1420);
+    const textarea = openTextEditor(2275, 1360);
+
+    // Arrange isActive=true explicitly: with the pointer treated as over the
+    // canvas the keydown handler runs, so the editingEntityId guard is what
+    // must block the whiteboard undo (see critique iteration 5).
+    document.querySelector("canvas")!.dispatchEvent(new window.MouseEvent("mouseenter"));
+    const before = whiteboard.saveShapes();
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "z", ctrlKey: true }));
+
+    expect(activeTextarea()).toBe(textarea); // still editing
+    expect(whiteboard.saveShapes()).toBe(before); // board untouched
+    commitViaBlur(textarea);
+  });
+
+  it("clicking the menu undo button mid-edit commits first, then undoes that commit as one step", () => {
+    const entity = drawRectangle(2200, 1500, 2350, 1620);
+    const textarea = openTextEditor(2275, 1560);
+    textarea.value = "menu undo";
+
+    // A real menu click blurs the textarea via mousedown before the click
+    // handler runs - simulate that order explicitly.
+    commitViaBlur(textarea);
+    const undoButton = document.querySelector('[data-action="undo"]') as HTMLButtonElement;
+    undoButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    frame();
+
+    // The commit landed in history and was then undone - text gone, shape intact.
+    expect(world.getEntity(entity.id)!.hasComponent(TextComponent)).toBe(false);
+    expect(world.getEntity(entity.id)).toBeDefined();
   });
 });

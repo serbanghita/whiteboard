@@ -4,7 +4,7 @@ Add editable text to the interior of rectangles and circles: double-click a shap
 it, text wraps inside a padded interior box, overflow is clipped, and the text renders in the
 WebGL canvas so it pans/zooms with the world.
 
-## Locked decisions (agreed 2026-07-19)
+## Locked decisions (agreed 2026-07-19, extended 2026-07-20)
 
 | Topic | Decision |
 |---|---|
@@ -16,6 +16,8 @@ WebGL canvas so it pans/zooms with the world.
 | Alignment | Centered horizontally and vertically. |
 | Padding | Fixed world-space constant (`TEXT_PADDING = 8`), lives in the layout module. |
 | Styling | Fixed defaults (font family/size/color constants) stored per-shape in the component; no styling UI. |
+| Persistence | Serialize full text props (`content`, `fontSize`, `fontFamily`, `color`) in every snapshot, so future styling needs no migration. |
+| History | One history snapshot per committed edit (blur or Escape alike), never per keystroke. |
 
 ## Chapter 1: TextComponent (data model)
 
@@ -31,7 +33,10 @@ interface TextComponentProps {
 ```
 
 - Follows the existing component pattern (props required, getters/setters like `RectangleComponent`).
-- Registered in `Whiteboard.setupECS()` `registerComponents` list.
+- Registered in `Whiteboard.setupECS()` `registerComponents` list — and **only** there: the ecs
+  `ComponentRegistry` is a process-wide singleton and re-registering a class assigns it a fresh
+  bitmask, desyncing every query created earlier. The static `componentsRegistered` guard must
+  remain the single registration site.
 - Attached lazily: first successful text edit adds the component with defaults
   (`DEFAULT_FONT_SIZE = 14`, `DEFAULT_FONT_FAMILY = "sans-serif"`, `DEFAULT_TEXT_COLOR = "#000"`).
   Committing an empty string removes the component (so empty shapes carry no text data).
@@ -45,7 +50,11 @@ New `src/textLayout.ts` — pure functions, no WebGL, no DOM, in the spirit of `
   - Rectangle: `(x+PAD, y+PAD, w−2·PAD, h−2·PAD)`.
   - Circle: inscribed square centered on `(cx, cy)` with `side = r·√2 − 2·PAD`.
   - Returns `null` when the padded box has non-positive width or height (shape too small).
-- `layoutText(content, box, fontSize, measure) : { lines: string[], lineHeight, originX, originY }`
+- `layoutText(content, box, fontSize, measure) : { lines: Array<{text, x, y}>, lineHeight }`
+  — `x`/`y` are box-local (relative to the box top-left), already centered. **Layout is the
+  single owner of placement**: the rasterizer and any future DOM-overlay centering consume
+  these positions verbatim and never re-center (no `textAlign: center` second implementation
+  that could drift from the layout's block math).
   - `measure: (text: string) => number` is injected (returns width in world units for the given
     font size). Production impl uses a shared offscreen 2D canvas `measureText`; tests inject a
     fake monospace measurer (jsdom's `measureText` returns 0).
@@ -54,7 +63,8 @@ New `src/textLayout.ts` — pure functions, no WebGL, no DOM, in the spirit of `
   - `lineHeight = fontSize × LINE_HEIGHT_FACTOR` (1.25).
   - Clip: keep only the first `floor(box.height / lineHeight)` lines. If that is 0, return
     empty lines (nothing renders).
-  - Centering: block is centered vertically in the box; each line centered horizontally.
+  - Centering: block is centered vertically in the box; each line centered horizontally —
+    expressed entirely in the returned per-line `x`/`y` positions.
 - Unit-space note (must be a code comment): fontSize is in **world units**, the box is in world
   units, and the injected measurer must return world units for that fontSize — one coordinate
   space throughout, zoom is applied only at rasterization time.
@@ -97,21 +107,37 @@ New `src/textLayout.ts` — pure functions, no WebGL, no DOM, in the spirit of `
 New `src/textRaster.ts` (or a private helper class used by RenderSystem):
 
 - Rasterize: offscreen canvas sized `boxWidth × S` by `boxHeight × S` where
-  `S = clamp(zoomBucket × devicePixelRatio, MIN_RASTER_SCALE, MAX_RASTER_SCALE)`;
-  draw the layout's lines with 2D canvas (`font = (fontSize × S) + "px " + family`,
-  `textAlign = "center"`, `textBaseline` per line), then upload via
-  `renderer.createTextureFromCanvas`.
+  `S = clamp(zoomBucket × devicePixelRatio, MIN_RASTER_SCALE, MAX_RASTER_SCALE)`,
+  `MIN_RASTER_SCALE = 0.125 × DPR`, `MAX_RASTER_SCALE = 8 × DPR` (the camera clamp is 0.1–8,
+  so the power-of-two buckets already span it; the clamp only defends pathological DPR/box
+  combinations, and the `MAX_TEXTURE_SIZE` cap below still applies). Draw each layout line at
+  `(line.x × S, line.y × S)` with `font = (fontSize × S) + "px " + family`,
+  `textAlign = "left"`, `textBaseline = "top"` — no centering here, placement comes entirely
+  from the layout (Chapter 2). Upload via `renderer.createTextureFromCanvas`.
 - Cache: `Map<entityId, { texture, key }>` where
-  `key = content | boxW | boxH | fontSize | zoomBucket`. On key mismatch: delete old texture,
-  re-rasterize. `zoomBucket = 2^round(log2(scale))` — power-of-two buckets, so pinch-zoom does
+  `key = content | boxW | boxH | fontSize | fontFamily | color | zoomBucket` — family and
+  color are constants in v1 but are baked into the raster pixels, so they belong in the key
+  now or a later styling UI would silently serve stale textures. On key mismatch: delete old
+  texture, re-rasterize. `zoomBucket = 2^round(log2(scale))` — power-of-two buckets, so pinch-zoom does
   not re-rasterize per wheel tick and text is never more than ~√2 away from its ideal
   resolution.
+- Resize-gesture exception: while `selectionComp.resizeHandleId` targets the entity, do NOT
+  re-rasterize on box-size mismatches — draw the previous texture stretched to the current box
+  (`texturedQuad` takes arbitrary w/h) and re-rasterize once when the handle is released
+  (release edge / `resizeHandleId` back to null). Otherwise a handle drag costs a full 2D
+  raster + GPU texture upload per frame (~60/s). Text is briefly distorted during the gesture,
+  crisp on release (Risk 6).
 - Eviction: each frame (cheap — iterate cache, not entities), drop entries whose entity no
   longer exists or no longer has a non-empty `TextComponent`; also drop the entity being
   edited (its DOM overlay replaces the render).
 - Cap texture size at `gl.getParameter(gl.MAX_TEXTURE_SIZE)`; if exceeded, clamp `S`.
 - Degenerate guard: skip rasterization entirely when `boxWidth × S < 1` or `boxHeight × S < 1`
   (a 0-px canvas throws / uploads garbage at extreme zoom-out).
+- Null-context guard: `canvas.getContext('2d')` can return null (notably in jsdom, which has
+  no 2D implementation without the `canvas` package) — treat it as "no texture" and skip that
+  entity's text, same contract as the degenerate guard. The visible canvas stays WebGL; this
+  offscreen canvas is only the rasterizer, and tests assert component/overlay state, never
+  pixels.
 
 RenderSystem owns the cache instance (fits ECS: renderer stays immediate-mode; per-entity
 retained state lives beside the system that uses it).
@@ -133,14 +159,18 @@ In the per-entity draw branch of `RenderSystem.update`:
 
 New `src/system/TextEditSystem.ts` + edit-state tracking:
 
-- Edit state lives in a new field on `ToolStateComponent`: `editingEntityId: string | null`
-  (single source of truth; RenderSystem and the keydown guard read it).
+- Edit state lives on `ToolStateComponent` as plain class fields (mirroring MouseComponent's
+  counters — NOT constructor props, so `addComponent` call sites stay unchanged and nothing is
+  implicitly `undefined`): `editingEntityId: string | null = null` (single source of truth;
+  RenderSystem and the keydown guards read it) and `suppressedPressCount = 0` (see click-away
+  handling below). `reset()` touches neither.
 - Trigger: `dblclick` canvas listener in `Whiteboard.bindEvents` records
   `dblClickCount++` and event-time world coords (`dblClickX/Y`) on `MouseComponent`, mirroring
   the existing `pressCount` edge pattern. `TextEditSystem` consumes the counter each frame,
   cursor tool only; hit-test via `hitTestEntity` reusing the existing
   `connectableShapesQuery` (rect + circle, no lines — exactly the text-capable set; topmost
-  wins, same reverse iteration as `MousePressSystem`).
+  wins, same reverse iteration as `MousePressSystem`). Reuse, don't recreate: `createQuery`
+  throws on a duplicate query id.
 - Entering edit:
   - Create a `textarea` appended to `$wrapper` (already `position:relative`);
     `position:absolute`, `zIndex` above canvas but below the floating menu (menu is 1000 → use
@@ -164,15 +194,19 @@ New `src/system/TextEditSystem.ts` + edit-state tracking:
     derives from `worldToScreen` at entry and would go stale (same v1 simplification as wheel).
   - The editing shape cannot be dragged/resized while the overlay has focus (clicks land on the
     textarea, not the canvas). A click-away on the canvas must commit without also
-    selecting/dragging/resizing/connecting. Mechanism — `suppressedPressCount` on
-    `ToolStateComponent`: browsers fire `mousedown` **before** the resulting `blur`, so by
-    commit time the canvas press is already recorded; commit sets
-    `suppressedPressCount = mouseComp.pressCount`. Every press-edge consumer
-    (`ResizeSystem`, `ConnectionSystem`, `MousePressSystem`, `DragSystem`) treats a press edge
-    with `pressCount <= suppressedPressCount` as already consumed (advance its `lastPressCount`,
-    return). Monotonic counter — no clearing step, no frame-ordering race. (A boolean
-    "clear next frame" flag would NOT work: ToolStateSystem runs *first* in the frame and would
-    wipe it before MousePress ever saw it.)
+    selecting/dragging/resizing/connecting. Mechanism — `suppressedPressCount`: browsers fire
+    `mousedown` **before** the resulting `blur`, so by commit time the canvas press is already
+    recorded; commit sets `suppressedPressCount = mouseComp.pressCount`. Each of the four
+    press consumers (`ResizeSystem`, `ConnectionSystem`, `MousePressSystem`, `DragSystem`)
+    then returns early whenever `mouseComp.pressCount <= toolState.suppressedPressCount` —
+    after its own edge bookkeeping, before acting. The guard is **press-scoped, not
+    edge-scoped**: `pressCount` doesn't change for the duration of a hold, so the whole
+    suppressed press is covered. This matters specifically for DragSystem, which drags on
+    every frame where `IsMousePressed` is present (no edge gate in front of `moveEntityBy`) —
+    edge-only suppression would let a click-away-and-hold drag the shape; the guard must sit
+    in front of the movement logic. Monotonic counter — no clearing step, no frame-ordering
+    race. (A boolean "clear next frame" flag would NOT work: ToolStateSystem runs *first* in
+    the frame and would wipe it before MousePress ever saw it.)
     Consequence: clicking another shape while editing takes two clicks (first commits, second
     selects) — same as Excalidraw, accepted. Corollary: the suppressed click also does NOT
     clear the selection on empty canvas — after a click-away commit the shape stays selected
@@ -191,30 +225,74 @@ New `src/system/TextEditSystem.ts` + edit-state tracking:
     Escape draw-cancel branch must not run (belt: textarea's own keydown handler calls
     `stopPropagation()`; braces: the document handler checks `editingEntityId`).
   - `destroy()` removes any live textarea and its listeners.
-- System order (current order now includes LineAttachmentSystem):
+- System order (current order includes LineAttachmentSystem and HistorySystem):
   `ToolState → draws → Resize → Connection → TextEdit → MousePress → Drag → LineAttachment →
-  MouseOver/Out → Selection → Render`. TextEdit's exact slot only needs to be before Render;
+  MouseOver/Out → Selection → Render → History`. History must stay last so a click-away text
+  commit is already applied when its release-edge snapshot fires. TextEdit's exact slot only
+  needs to be before Render;
   placing it before MousePress keeps all press/dblclick interpretation adjacent. The two
   single-clicks that precede a dblclick will have already selected the shape — that is fine and
   must be covered by a test. `ToolStateComponent.reset()` must NOT touch
   `editingEntityId`/`suppressedPressCount` (reset is draw-state bookkeeping only).
 
-## Chapter 7: Persistence
+## Chapter 7: Persistence (saveShapes/loadShapes reconcile)
 
-- `Whiteboard.save()`: add optional `text: { content, fontSize, fontFamily, color }` per shape
-  when the entity has a `TextComponent`. Keep `version: "1.0"` — field is optional and old
-  payloads load unchanged.
-- `Whiteboard.load()`: if `shape.text` present, `addComponent(TextComponent, shape.text)`.
+The serialization core is `saveShapes()`/`loadShapes()`: a flat shapes array with preserved
+entity ids, applied as a **differential update** (existing entities patched in place, missing
+recreated, absent removed) — it doubles as the undo/redo snapshot unit. `save()`/`load()` are
+thin wrappers adding camera state; they need no text-specific changes.
 
-## Chapter 8: Tests
+- `saveShapes()`: when the entity has a `TextComponent`, emit
+  `data.text = { content, fontSize, fontFamily, color }` — full props (locked decision), so
+  future styling needs no snapshot migration. Optional field: legacy snapshots load unchanged
+  and the byte-identical load→save round-trip property is preserved.
+- `loadShapes()`: reconcile `TextComponent` exactly like the existing
+  `LineAttachmentComponent` reconciliation block, in the rect and circle branches of **both**
+  the create and patch paths: snapshot has `text` → add-or-update; snapshot has none → remove
+  the component if present. Without the remove branch, undoing "added text to shape X" leaves
+  the text behind (patched entities keep their components).
+- Update means mutating fields on the existing component instance — never a bare re-`addComponent`:
+  the ecs `Component.init` quirk resets `properties` to `{}` when props are omitted
+  (Entity.ts re-inits existing instances instead of erroring).
+
+## Chapter 8: Undo/redo integration
+
+`HistorySystem` snapshots only on mouse **release edges**, and `Whiteboard`'s document keydown
+handler intercepts Ctrl/Cmd+Z/Y globally — three gaps to close:
+
+- **Commit records history**: pass the `recordHistory` callback into `TextEditSystem` at
+  construction (mirroring `createSystem(HistorySystem, query, () => this.recordHistory())`)
+  and call it on every commit whose content actually changed — blur AND Escape paths (Escape
+  produces no mouse event, so the release-edge path never sees it; relying on it would merge
+  the text edit into some later gesture's undo step). One snapshot per committed edit (locked
+  decision), never per keystroke. Verified: `HistoryManager.pushState` dedups by string
+  equality (HistoryManager.ts:24-25 — its docblock explicitly invites push-on-every-candidate),
+  so the click-away double-snapshot is already safe at the data-structure level. Keep the
+  changed-check in TextEditSystem anyway: it avoids serializing the entire board
+  (`saveShapes()`) on every no-op commit, since dedup only happens after the full
+  serialization has been paid for.
+- **Keyboard guard**: skip the Ctrl/Cmd+Z/Y branch in the keydown handler while
+  `editingEntityId` is set — the textarea's native undo of typing must win (belt: textarea
+  `stopPropagation`; braces: handler checks `editingEntityId` — same pattern as the Escape
+  guard).
+- **`canApplyHistory()`** additionally returns false while `editingEntityId` is set: applying
+  a snapshot mid-edit could delete or mutate the entity under the open textarea (orphaned
+  overlay, commit into a dead entity).
+
+## Chapter 9: Tests
 
 - `src/__mocks__/webgl.ts`: `enable`, `disable`, `blendFunc` already exist. Actually missing:
   `createTexture`, `deleteTexture`, `bindTexture`, `texImage2D`, `texParameteri`,
-  `activeTexture`, `pixelStorei`, `getParameter` (return e.g. 4096 for `MAX_TEXTURE_SIZE`),
-  plus the texture/blend constants (`TEXTURE_2D`, `TEXTURE0`, `RGBA`, `UNSIGNED_BYTE`,
-  `LINEAR`, `CLAMP_TO_EDGE`, `TEXTURE_WRAP_S/T`, `TEXTURE_MIN/MAG_FILTER`, `BLEND`, `ONE`,
-  `ONE_MINUS_SRC_ALPHA`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, `UNPACK_FLIP_Y_WEBGL`). The second
-  shader program reuses the existing shader/program mocks unchanged.
+  `activeTexture`, `pixelStorei`, `uniform1i` (samplers have no float variant — the textured
+  program sets `u_texture` via `uniform1i(location, 0)`), `getParameter` (return e.g. 4096 for
+  `MAX_TEXTURE_SIZE`), plus the texture/blend constants (`TEXTURE_2D`, `TEXTURE0`, `RGBA`,
+  `UNSIGNED_BYTE`, `LINEAR`, `CLAMP_TO_EDGE`, `TEXTURE_WRAP_S/T`, `TEXTURE_MIN/MAG_FILTER`,
+  `BLEND`, `ONE`, `ONE_MINUS_SRC_ALPHA`, `UNPACK_PREMULTIPLY_ALPHA_WEBGL`,
+  `UNPACK_FLIP_Y_WEBGL`). The second shader program reuses the existing shader/program mocks
+  unchanged. Optionally extend the same file's `getContext` override to return a stub 2D
+  context for `'2d'` (`fillText`/`measureText`/font-prop no-ops) so the raster path itself is
+  exercised and the jsdom virtual console stays clean; the null-context guard in Chapter 4 is
+  the mandatory layer either way.
 - New `src/__tests__/textLayout.test.ts` (pure, no DOM): interior boxes (rect, circle inscribed
   square, too-small → null), wrapping (word wrap, long-word char break, explicit `\n`),
   vertical clipping, centering origins — all with the injected fake measurer.
@@ -226,18 +304,33 @@ New `src/system/TextEditSystem.ts` + edit-state tracking:
   the wrapper → set value + dispatch `blur` on the textarea → assert `TextComponent.content`;
   re-open edit shows existing content; empty commit removes the component; Escape-in-textarea
   commits and does not cancel/remove anything; click-away suppression (press on empty canvas +
-  textarea `blur` → commit, selection still contains the shape, no drag/resize started);
-  save→load round-trips text. jsdom `measureText` returns 0 —
-  the production measurer must be injectable/mockable at the module boundary for smoke tests
-  (vi.mock of `textLayout`'s default measurer, or a `setMeasurer` hook).
+  textarea `blur` → commit, selection still contains the shape, no drag/resize/move started —
+  including with the button held).
+- Persistence & history tests: `loadShapes(saveShapes())` is a no-op with text present;
+  loading a snapshot without text removes previously present text; Escape-commit → `undo()`
+  removes the text; text survives undo→redo; Ctrl/Cmd+Z simulated while editing leaves shapes
+  untouched.
+- Measurer seam: jsdom `measureText` returns 0, so `textLayout.ts` exports
+  `setMeasurer(fn)` / `resetMeasurer()`; the default (lazily created shared offscreen-canvas
+  measurer) is used in production, and the smoke suite calls `setMeasurer(fakeMonospace)` in
+  `beforeAll`. No `vi.mock` — module-graph mocking under the real app entry is order-sensitive
+  brittleness this suite deliberately avoids.
 - Typecheck: `npx tsc --noEmit` stays green.
 
-## Chapter 9: Docs & constants
+## Chapter 10: Docs & constants
 
 - Constants live in `textLayout.ts` (`TEXT_PADDING`, `LINE_HEIGHT_FACTOR`, font defaults) and
   `textRaster.ts` (zoom bucketing, raster scale clamps).
 - Update `CLAUDE.md` (directory structure, features, input flow: dblclick + edit-mode guards,
   system order) and `src/CHANGELOG.md`.
+
+## Execution order
+
+Chapters 3+4 (renderer texture path + raster cache) carry most of the implementation risk
+(per-program uniforms, NPOT, y-flip, blending) and have no dependency on the editing UX.
+Execute and test them first — renderer/mock tests green before starting Chapter 6. Sensible
+sequence: 3 → 4 → 2 → 1 → 5 → 6 → 7 → 8 → 9 → 10 (layout (2) is pure and can be built/tested
+any time before 5).
 
 ## Risks / known compromises (accepted for v1)
 
@@ -253,13 +346,20 @@ New `src/system/TextEditSystem.ts` + edit-state tracking:
 5. **Wheel over the overlay is inert**: while editing, zoom/pan gestures made with the cursor
    on the textarea do nothing (events never reach the canvas). Moving the cursor off the
    overlay and scrolling commits-then-zooms as designed.
+6. **Text stretches during handle resize**: the cached texture is scaled to the live box while
+   a resize drag is active and re-rasterized (re-wrapped, crisp) on release — trades momentary
+   distortion for not paying raster + GPU upload per frame.
 
 ## Acceptance criteria
 
 - Double-click a rect or circle (cursor tool) → type → click away: text appears centered in
   the shape, wrapped to the padded interior, clipped when too tall.
-- Text moves/resizes with the shape (drag + handle resize re-wrap it) and pans/zooms with the
-  camera, staying sharp at zoom buckets from 0.1× to 8×.
+- Text moves/resizes with the shape (drag re-uses the texture; handle resize re-wraps on
+  release) and pans/zooms with the camera — readable at every zoom, re-sharpened at each
+  power-of-two zoom bucket (Risk 2).
 - Lines cannot be text-edited; double-click on empty canvas does nothing.
 - Escape while editing commits; Escape otherwise still cancels in-progress drawing.
-- Save/load round-trips text; `npm test` and `npx tsc --noEmit` pass.
+- Every committed text edit (blur or Escape) is exactly one undo step; Ctrl/Cmd+Z while
+  editing performs the textarea's native undo only, never the whiteboard's.
+- `loadShapes(saveShapes())` round-trips text as a no-op; `npm test` and `npx tsc --noEmit`
+  pass.

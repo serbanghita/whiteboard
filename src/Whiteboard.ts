@@ -394,6 +394,12 @@ export class Whiteboard {
             data.attachment = { start: att.start, end: att.end };
           }
         }
+        if ((data.type === 'rectangle' || data.type === 'circle') && entity.hasComponent(TextComponent)) {
+          const text = entity.getComponent(TextComponent);
+          // Full props (not just content), so a future styling UI needs no
+          // snapshot migration. Optional field - legacy snapshots load fine.
+          data.text = { content: text.content, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color };
+        }
         return data;
       });
 
@@ -482,6 +488,32 @@ export class Whiteboard {
           }
         } else if (entity.hasComponent(LineAttachmentComponent)) {
           entity.removeComponent(LineAttachmentComponent);
+        }
+      }
+
+      // Reconcile the text component with the snapshot (add-or-update /
+      // remove) - without the remove branch, undoing "added text" would
+      // leave the text behind on patched entities. Updates mutate fields in
+      // place: a bare re-addComponent would hit the ecs Component.init
+      // props-wipe quirk.
+      if (shape.type === 'rectangle' || shape.type === 'circle') {
+        if (shape.text) {
+          if (entity.hasComponent(TextComponent)) {
+            const text = entity.getComponent(TextComponent);
+            text.content = shape.text.content;
+            text.fontSize = shape.text.fontSize;
+            text.fontFamily = shape.text.fontFamily;
+            text.color = shape.text.color;
+          } else {
+            entity.addComponent(TextComponent, {
+              content: shape.text.content,
+              fontSize: shape.text.fontSize,
+              fontFamily: shape.text.fontFamily,
+              color: shape.text.color,
+            });
+          }
+        } else if (entity.hasComponent(TextComponent)) {
+          entity.removeComponent(TextComponent);
         }
       }
     });

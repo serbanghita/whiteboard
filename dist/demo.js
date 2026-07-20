@@ -329,8 +329,12 @@
     }
     createQuery(id, filters) {
       const query = new Query(this, id, filters);
-      if (this.queries.has(query.id)) {
-        throw new Error(`A query with the id "${query.id}" already exists.`);
+      const existing = this.queries.get(id);
+      if (existing) {
+        if (existing.all === query.all && existing.any === query.any && existing.none === query.none) {
+          return existing;
+        }
+        throw new Error(`A query with the id "${id}" already exists with different filters.`);
       }
       this.queries.set(query.id, query);
       query.init();
@@ -570,6 +574,34 @@
   }
 `;
 
+  // src/renderer/shaders/textured.ts
+  var texturedVertexShaderSource = `
+  attribute vec2 a_position;
+  attribute vec2 a_texcoord;
+  uniform vec2 u_resolution;
+  uniform vec2 u_translate;
+  uniform float u_scale;
+  varying vec2 v_texcoord;
+
+  void main() {
+    // Camera transform: world coordinates -> CSS-pixel screen space.
+    vec2 screen = (a_position - u_translate) * u_scale;
+    vec2 zeroToOne = screen / u_resolution;
+    vec2 clipSpace = zeroToOne * 2.0 - 1.0;
+    gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+    v_texcoord = a_texcoord;
+  }
+`;
+  var texturedFragmentShaderSource = `
+  precision mediump float;
+  varying vec2 v_texcoord;
+  uniform sampler2D u_texture;
+
+  void main() {
+    gl_FragColor = texture2D(u_texture, v_texcoord);
+  }
+`;
+
   // src/renderer/shaders/ShaderProgram.ts
   var ShaderProgram = class {
     constructor(gl, vertexSource, fragmentSource) {
@@ -697,6 +729,14 @@
     constructor(gl) {
       this.gl = gl;
       this.shaderProgram = new ShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
+      this.texturedProgram = new ShaderProgram(gl, texturedVertexShaderSource, texturedFragmentShaderSource);
+      this.texturedPositionLocation = this.texturedProgram.getAttributeLocation("a_position");
+      this.texturedTexcoordLocation = this.texturedProgram.getAttributeLocation("a_texcoord");
+      this.texturedResolutionLocation = this.texturedProgram.getUniformLocation("u_resolution");
+      this.texturedTranslateLocation = this.texturedProgram.getUniformLocation("u_translate");
+      this.texturedScaleLocation = this.texturedProgram.getUniformLocation("u_scale");
+      this.texturedProgram.use();
+      gl.uniform1i(this.texturedProgram.getUniformLocation("u_texture"), 0);
       this.shaderProgram.use();
       this.positionAttributeLocation = this.shaderProgram.getAttributeLocation("a_position");
       this.resolutionUniformLocation = this.shaderProgram.getUniformLocation("u_resolution");
@@ -708,6 +748,14 @@
         throw new Error("Failed to create WebGL buffer");
       }
       this.positionBuffer = buffer;
+      const texcoordBuffer = gl.createBuffer();
+      if (!texcoordBuffer) {
+        throw new Error("Failed to create WebGL buffer");
+      }
+      this.texcoordBuffer = texcoordBuffer;
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      this.cachedResolution = { width: gl.canvas.width, height: gl.canvas.height };
       gl.uniform2f(this.resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
       gl.uniform2f(this.translateUniformLocation, 0, 0);
       gl.uniform1f(this.scaleUniformLocation, 1);
@@ -719,10 +767,24 @@
     colorUniformLocation;
     translateUniformLocation;
     scaleUniformLocation;
+    // Textured-quad path (rasterized text). Uniforms are per-program state, so
+    // the textured program keeps its own camera/resolution locations; the
+    // cached values below are pushed to it on every textured draw.
+    texturedProgram;
+    texcoordBuffer;
+    texturedPositionLocation;
+    texturedTexcoordLocation;
+    texturedResolutionLocation;
+    texturedTranslateLocation;
+    texturedScaleLocation;
+    cachedResolution;
+    cachedCamera = { scale: 1, x: 0, y: 0 };
     setResolution(width, height) {
+      this.cachedResolution = { width, height };
       this.gl.uniform2f(this.resolutionUniformLocation, width, height);
     }
     setCamera(scale, x, y) {
+      this.cachedCamera = { scale, x, y };
       this.gl.uniform2f(this.translateUniformLocation, x, y);
       this.gl.uniform1f(this.scaleUniformLocation, scale);
     }
@@ -823,8 +885,77 @@
       const lineWidth = options?.strokeWidth || 1;
       this.drawLineInternal(x1, y1, x2, y2, lineWidth);
     }
-    text(str, x, y, options) {
-      console.warn("WebGL text rendering not yet implemented. Text:", str);
+    maxTextureSize() {
+      return this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
+    }
+    createTextureFromCanvas(source) {
+      const gl = this.gl;
+      const texture = gl.createTexture();
+      if (!texture) {
+        throw new Error("Failed to create WebGL texture");
+      }
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      return texture;
+    }
+    deleteTexture(handle) {
+      this.gl.deleteTexture(handle);
+    }
+    texturedQuad(handle, x, y, width, height) {
+      const gl = this.gl;
+      this.texturedProgram.use();
+      gl.uniform2f(this.texturedResolutionLocation, this.cachedResolution.width, this.cachedResolution.height);
+      gl.uniform2f(this.texturedTranslateLocation, this.cachedCamera.x, this.cachedCamera.y);
+      gl.uniform1f(this.texturedScaleLocation, this.cachedCamera.scale);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, handle);
+      const x2 = x + width;
+      const y2 = y + height;
+      const positions = new Float32Array([
+        x,
+        y,
+        x2,
+        y,
+        x,
+        y2,
+        x,
+        y2,
+        x2,
+        y,
+        x2,
+        y2
+      ]);
+      const texcoords = new Float32Array([
+        0,
+        0,
+        1,
+        0,
+        0,
+        1,
+        0,
+        1,
+        1,
+        0,
+        1,
+        1
+      ]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.texturedPositionLocation);
+      gl.vertexAttribPointer(this.texturedPositionLocation, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.texcoordBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.texturedTexcoordLocation);
+      gl.vertexAttribPointer(this.texturedTexcoordLocation, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.disableVertexAttribArray(this.texturedTexcoordLocation);
+      this.shaderProgram.use();
     }
     dot(x, y, options) {
       const radius = options?.strokeWidth || 2;
@@ -908,6 +1039,9 @@
   var ZOOM_SENSITIVITY = 0.01;
   function screenToWorld(cam, screenX, screenY) {
     return { x: cam.x + screenX / cam.scale, y: cam.y + screenY / cam.scale };
+  }
+  function worldToScreen(cam, worldX, worldY) {
+    return { x: (worldX - cam.x) * cam.scale, y: (worldY - cam.y) * cam.scale };
   }
   function zoomCameraAt(cam, screenX, screenY, deltaY) {
     const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, cam.scale * Math.exp(-deltaY * ZOOM_SENSITIVITY)));
@@ -1172,6 +1306,11 @@
     // without the mouse moving.
     screenX = 0;
     screenY = 0;
+    // Double-click tracking, same event-time edge-counter idiom as press():
+    // TextEditSystem compares dblClickCount against its own last-seen value.
+    dblClickCount = 0;
+    dblClickX = 0;
+    dblClickY = 0;
     setXY(x, y) {
       this.properties.x = x;
       this.properties.y = y;
@@ -1183,6 +1322,11 @@
     }
     release() {
       this.releaseCount++;
+    }
+    doubleClick(x, y) {
+      this.dblClickX = x;
+      this.dblClickY = y;
+      this.dblClickCount++;
     }
     get x() {
       return this.properties.x;
@@ -1255,6 +1399,18 @@
       super(properties);
       this.properties = properties;
     }
+    // Text-edit state, plain class fields like MouseComponent's counters (not
+    // constructor props, so addComponent call sites stay unchanged and nothing
+    // is implicitly undefined). reset() touches neither.
+    //
+    // Entity whose text is being edited in the DOM overlay; single source of
+    // truth read by RenderSystem and the keyboard/history guards.
+    editingEntityId = null;
+    // pressCount value recorded when a textarea click-away commit consumed a
+    // canvas press. Press consumers skip any press with
+    // pressCount <= suppressedPressCount for its ENTIRE hold (the counter is
+    // monotonic), so the commit click cannot select/drag/resize/connect.
+    suppressedPressCount = 0;
     get currentTool() {
       return this.properties.currentTool;
     }
@@ -1350,6 +1506,38 @@
     }
     set end(value) {
       this.properties.end = value;
+    }
+  };
+
+  // src/component/TextComponent.ts
+  var TextComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+    get content() {
+      return this.properties.content;
+    }
+    set content(value) {
+      this.properties.content = value;
+    }
+    get fontSize() {
+      return this.properties.fontSize;
+    }
+    set fontSize(value) {
+      this.properties.fontSize = value;
+    }
+    get fontFamily() {
+      return this.properties.fontFamily;
+    }
+    set fontFamily(value) {
+      this.properties.fontFamily = value;
+    }
+    get color() {
+      return this.properties.color;
+    }
+    set color(value) {
+      this.properties.color = value;
     }
   };
 
@@ -1516,6 +1704,208 @@
     return best;
   }
 
+  // src/textLayout.ts
+  var TEXT_PADDING = 8;
+  var LINE_HEIGHT_FACTOR = 1.25;
+  var DEFAULT_FONT_SIZE = 14;
+  var DEFAULT_FONT_FAMILY = "sans-serif";
+  var DEFAULT_TEXT_COLOR = "#000";
+  var approximateMeasurer = (text, fontSize) => text.length * fontSize * 0.6;
+  var measurerOverride = null;
+  var canvasMeasurer = null;
+  function defaultMeasurer() {
+    if (!canvasMeasurer) {
+      const context = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
+      canvasMeasurer = context ? (text, fontSize, fontFamily) => {
+        context.font = `${fontSize}px ${fontFamily}`;
+        return context.measureText(text).width;
+      } : approximateMeasurer;
+    }
+    return canvasMeasurer;
+  }
+  function getMeasurer() {
+    return measurerOverride ?? defaultMeasurer();
+  }
+  function interiorBoxForRectangle(x, y, width, height) {
+    const boxWidth = width - 2 * TEXT_PADDING;
+    const boxHeight = height - 2 * TEXT_PADDING;
+    if (boxWidth <= 0 || boxHeight <= 0) {
+      return null;
+    }
+    return { x: x + TEXT_PADDING, y: y + TEXT_PADDING, width: boxWidth, height: boxHeight };
+  }
+  function interiorBoxForCircle(cx, cy, radius) {
+    const side = radius * Math.SQRT2 - 2 * TEXT_PADDING;
+    if (side <= 0) {
+      return null;
+    }
+    return { x: cx - side / 2, y: cy - side / 2, width: side, height: side };
+  }
+  function getInteriorBox(entity) {
+    if (entity.hasComponent(RectangleComponent)) {
+      const rect = entity.getComponent(RectangleComponent);
+      return interiorBoxForRectangle(rect.x, rect.y, rect.width, rect.height);
+    }
+    if (entity.hasComponent(CircleComponent)) {
+      const circle = entity.getComponent(CircleComponent);
+      return interiorBoxForCircle(circle.x, circle.y, circle.radius);
+    }
+    return null;
+  }
+  function breakLongWord(word, maxWidth, measure) {
+    let head = word[0];
+    for (let i = 2; i <= word.length; i++) {
+      const candidate = word.slice(0, i);
+      if (measure(candidate) > maxWidth) {
+        break;
+      }
+      head = candidate;
+    }
+    return { head, rest: word.slice(head.length) };
+  }
+  function layoutText(content, box, fontSize, fontFamily = DEFAULT_FONT_FAMILY, measurer = getMeasurer()) {
+    const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
+    const maxLines = Math.floor(box.height / lineHeight);
+    if (maxLines <= 0) {
+      return { lines: [], lineHeight };
+    }
+    const measure = (text) => measurer(text, fontSize, fontFamily);
+    const wrapped = [];
+    for (const paragraph of content.split("\n")) {
+      const words = paragraph.split(/\s+/).filter((word) => word.length > 0);
+      if (words.length === 0) {
+        wrapped.push("");
+        continue;
+      }
+      let current = "";
+      for (let word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (measure(candidate) <= box.width) {
+          current = candidate;
+          continue;
+        }
+        if (current) {
+          wrapped.push(current);
+          current = "";
+        }
+        while (measure(word) > box.width && word.length > 1) {
+          const { head, rest } = breakLongWord(word, box.width, measure);
+          wrapped.push(head);
+          word = rest;
+        }
+        current = word;
+      }
+      wrapped.push(current);
+    }
+    const visible = wrapped.slice(0, maxLines);
+    const blockTop = (box.height - visible.length * lineHeight) / 2;
+    return {
+      lines: visible.map((text, index) => ({
+        text,
+        x: (box.width - measure(text)) / 2,
+        y: blockTop + index * lineHeight
+      })),
+      lineHeight
+    };
+  }
+
+  // src/textRaster.ts
+  var MIN_RASTER_SCALE_FACTOR = 0.125;
+  var MAX_RASTER_SCALE_FACTOR = 8;
+  function zoomBucket(scale) {
+    return Math.pow(2, Math.round(Math.log2(scale)));
+  }
+  function rasterize(style, box, rasterScale) {
+    const width = Math.ceil(box.width * rasterScale);
+    const height = Math.ceil(box.height * rasterScale);
+    if (width < 1 || height < 1) {
+      return null;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+    const layout = layoutText(style.content, box, style.fontSize, style.fontFamily);
+    context.font = `${style.fontSize * rasterScale}px ${style.fontFamily}`;
+    context.textAlign = "left";
+    context.textBaseline = "top";
+    context.fillStyle = style.color;
+    for (const line of layout.lines) {
+      context.fillText(line.text, line.x * rasterScale, line.y * rasterScale);
+    }
+    return canvas;
+  }
+  var TextTextureCache = class _TextTextureCache {
+    constructor(renderer) {
+      this.renderer = renderer;
+    }
+    entries = /* @__PURE__ */ new Map();
+    static key(style, box, bucket) {
+      return [style.content, box.width, box.height, style.fontSize, style.fontFamily, style.color, bucket].join("|");
+    }
+    /**
+     * Returns the texture for an entity's text block, rasterizing on miss.
+     *
+     * @param freezeSize While true (the entity is being handle-resized), a
+     * cached texture is reused even if stale and stretched by the caller's
+     * quad - re-rasterizing on release avoids a raster + GPU upload per frame
+     * of the drag.
+     */
+    get(entityId, style, box, cameraScale, freezeSize) {
+      const existing = this.entries.get(entityId);
+      if (existing && freezeSize) {
+        return existing.texture;
+      }
+      const devicePixelRatio = typeof window !== "undefined" && window.devicePixelRatio || 1;
+      const bucket = zoomBucket(cameraScale);
+      let rasterScale = Math.min(
+        Math.max(bucket * devicePixelRatio, MIN_RASTER_SCALE_FACTOR * devicePixelRatio),
+        MAX_RASTER_SCALE_FACTOR * devicePixelRatio
+      );
+      const maxSize = this.renderer.maxTextureSize();
+      const largestSide = Math.max(box.width, box.height);
+      if (largestSide * rasterScale > maxSize) {
+        rasterScale = maxSize / largestSide;
+      }
+      const key = _TextTextureCache.key(style, box, bucket);
+      if (existing && existing.key === key) {
+        return existing.texture;
+      }
+      const raster = rasterize(style, box, rasterScale);
+      if (existing) {
+        this.renderer.deleteTexture(existing.texture);
+        this.entries.delete(entityId);
+      }
+      if (!raster) {
+        return null;
+      }
+      const texture = this.renderer.createTextureFromCanvas(raster);
+      this.entries.set(entityId, { texture, key });
+      return texture;
+    }
+    /**
+     * Frees textures for entities not in the live set (removed entities,
+     * cleared text, the entity currently being edited). Called once per frame;
+     * iterates the cache, not the world.
+     */
+    sweep(liveEntityIds) {
+      this.entries.forEach((entry, entityId) => {
+        if (!liveEntityIds.has(entityId)) {
+          this.renderer.deleteTexture(entry.texture);
+          this.entries.delete(entityId);
+        }
+      });
+    }
+    /** Frees everything (whiteboard teardown). */
+    dispose() {
+      this.entries.forEach((entry) => this.renderer.deleteTexture(entry.texture));
+      this.entries.clear();
+    }
+  };
+
   // src/system/RenderSystem.ts
   var SELECTION_STROKE_COLOR = "rgb(66 133 244)";
   var HANDLE_FILL_COLOR = "white";
@@ -1527,7 +1917,11 @@
       this.world = world;
       this.query = query;
       this.renderer = renderer;
+      this.textCache = new TextTextureCache(renderer);
     }
+    // Per-entity text textures; retained state lives here, the renderer stays
+    // immediate-mode.
+    textCache;
     update(now) {
       let scale = 1;
       const cameraEntity = this.world.getEntity("camera");
@@ -1537,6 +1931,11 @@
         this.renderer.setCamera(cam.scale, cam.x, cam.y);
       }
       this.renderer.clear();
+      const toolEntity = this.world.getEntity("tool");
+      const editingEntityId = toolEntity && toolEntity.hasComponent(ToolStateComponent) ? toolEntity.getComponent(ToolStateComponent).editingEntityId : null;
+      const selectionEntity = this.world.getEntity("selection");
+      const selectionComp = selectionEntity ? selectionEntity.getComponent(SelectionRectangleComponent) : null;
+      const liveTextIds = /* @__PURE__ */ new Set();
       this.query.execute().forEach((entity) => {
         if (entity.hasComponent(RectangleComponent)) {
           const comp = entity.getComponent(RectangleComponent);
@@ -1544,12 +1943,14 @@
             strokeColor: comp.strokeColor || "black",
             fillColor: comp.fillColor
           });
+          this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
         } else if (entity.hasComponent(CircleComponent)) {
           const comp = entity.getComponent(CircleComponent);
           this.renderer.circle(comp.x, comp.y, comp.radius, {
             strokeColor: comp.strokeColor || "black",
             fillColor: comp.fillColor
           });
+          this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
         } else if (entity.hasComponent(LineComponent)) {
           const comp = entity.getComponent(LineComponent);
           this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
@@ -1558,8 +1959,35 @@
           });
         }
       });
+      this.textCache.sweep(liveTextIds);
       this.renderSelectionOverlay(scale);
       this.renderConnectionTargets(scale);
+    }
+    /**
+     * Draws an entity's text block as a textured quad over its interior box.
+     * Skipped while the entity is being edited (the DOM overlay replaces it)
+     * and for empty/absent text. While the entity is being handle-resized the
+     * cached texture is stretched to the live box instead of re-rasterizing
+     * every frame; it re-wraps crisply when the handle is released.
+     */
+    drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds) {
+      if (entity.id === editingEntityId || !entity.hasComponent(TextComponent)) {
+        return;
+      }
+      const text = entity.getComponent(TextComponent);
+      if (!text.content) {
+        return;
+      }
+      const box = getInteriorBox(entity);
+      if (!box) {
+        return;
+      }
+      liveTextIds.add(entity.id);
+      const freezeSize = !!selectionComp?.resizeHandleId && selectionComp.hasEntity(entity);
+      const texture = this.textCache.get(entity.id, text.properties, box, scale, freezeSize);
+      if (texture) {
+        this.renderer.texturedQuad(texture, box.x, box.y, box.width, box.height);
+      }
     }
     /**
      * While a connection drag is active, show every shape's connection points
@@ -1685,6 +2113,9 @@
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         return;
       }
+      if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+        return;
+      }
       if (!isClick) {
         return;
       }
@@ -1783,6 +2214,9 @@
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         return;
       }
+      if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
+        return;
+      }
       if (!cursor.hasComponent(IsMousePressed)) {
         this.lastX = null;
         this.lastY = null;
@@ -1850,6 +2284,9 @@
       const toolEntity = this.world.getEntity("tool");
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         this.stop(selectionComp);
+        return;
+      }
+      if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
         return;
       }
       if (pressEdge) {
@@ -1968,6 +2405,9 @@
       const toolEntity = this.world.getEntity("tool");
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         this.stop(selectionComp);
+        return;
+      }
+      if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
         return;
       }
       const scale = getCameraScale(this.world);
@@ -2352,6 +2792,148 @@
     }
   };
 
+  // src/system/TextEditSystem.ts
+  var OVERLAY_Z_INDEX = "500";
+  var TextEditSystem = class extends System {
+    constructor(world, query, wrapper, onContentChanged) {
+      super(world, query);
+      this.world = world;
+      this.query = query;
+      this.wrapper = wrapper;
+      this.onContentChanged = onContentChanged;
+    }
+    lastDblClickCount = 0;
+    textarea = null;
+    editingEntityId = null;
+    // Content at edit entry; a commit only records history when it changed.
+    initialContent = "";
+    committing = false;
+    update(now) {
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
+      const dblClickEdge = mouseComp.dblClickCount > this.lastDblClickCount;
+      this.lastDblClickCount = mouseComp.dblClickCount;
+      if (!dblClickEdge) {
+        return;
+      }
+      const toolEntity = this.world.getEntity("tool");
+      if (!toolEntity) {
+        return;
+      }
+      const toolState = toolEntity.getComponent(ToolStateComponent);
+      if (toolState.currentTool !== "cursor" || toolState.editingEntityId) {
+        return;
+      }
+      const scale = getCameraScale(this.world);
+      const entities = [...this.query.execute().values()];
+      for (let i = entities.length - 1; i >= 0; i--) {
+        if (hitTestEntity(entities[i], mouseComp.dblClickX, mouseComp.dblClickY, scale)) {
+          this.enterEdit(entities[i], toolState);
+          return;
+        }
+      }
+    }
+    enterEdit(entity, toolState) {
+      const box = getInteriorBox(entity);
+      if (!box) {
+        return;
+      }
+      const cameraEntity = this.world.getEntity("camera");
+      if (!cameraEntity) {
+        return;
+      }
+      const camera = cameraEntity.getComponent(CameraComponent);
+      const existing = entity.hasComponent(TextComponent) ? entity.getComponent(TextComponent) : null;
+      const fontSize = existing?.fontSize ?? DEFAULT_FONT_SIZE;
+      const fontFamily = existing?.fontFamily ?? DEFAULT_FONT_FAMILY;
+      const color = existing?.color ?? DEFAULT_TEXT_COLOR;
+      const topLeft = worldToScreen(camera, box.x, box.y);
+      const textarea = document.createElement("textarea");
+      textarea.value = existing?.content ?? "";
+      const style = textarea.style;
+      style.position = "absolute";
+      style.left = `${topLeft.x}px`;
+      style.top = `${topLeft.y}px`;
+      style.width = `${box.width * camera.scale}px`;
+      style.height = `${box.height * camera.scale}px`;
+      style.zIndex = OVERLAY_Z_INDEX;
+      style.background = "transparent";
+      style.border = "none";
+      style.outline = "none";
+      style.resize = "none";
+      style.overflow = "hidden";
+      style.padding = "0";
+      style.margin = "0";
+      style.textAlign = "center";
+      style.fontSize = `${fontSize * camera.scale}px`;
+      style.fontFamily = fontFamily;
+      style.lineHeight = String(LINE_HEIGHT_FACTOR);
+      style.color = color;
+      textarea.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          this.commit();
+        }
+      });
+      textarea.addEventListener("blur", () => this.commit());
+      this.wrapper.appendChild(textarea);
+      this.textarea = textarea;
+      this.editingEntityId = entity.id;
+      this.initialContent = existing?.content ?? "";
+      toolState.editingEntityId = entity.id;
+      textarea.focus();
+      textarea.select();
+    }
+    /**
+     * Writes the textarea content into the entity's TextComponent (adding or
+     * removing the component as needed), tears the overlay down and stamps the
+     * click-away press suppression. Idempotent: removing the textarea fires a
+     * final blur that must be a no-op.
+     */
+    commit() {
+      if (this.committing || !this.textarea || !this.editingEntityId) {
+        return;
+      }
+      this.committing = true;
+      const entity = this.world.getEntity(this.editingEntityId);
+      const content = this.textarea.value;
+      const effectiveContent = content.trim() === "" ? "" : content;
+      if (entity) {
+        if (effectiveContent === "") {
+          entity.removeComponent(TextComponent);
+        } else if (entity.hasComponent(TextComponent)) {
+          entity.getComponent(TextComponent).content = content;
+        } else {
+          entity.addComponent(TextComponent, {
+            content,
+            fontSize: DEFAULT_FONT_SIZE,
+            fontFamily: DEFAULT_FONT_FAMILY,
+            color: DEFAULT_TEXT_COLOR
+          });
+        }
+      }
+      const toolEntity = this.world.getEntity("tool");
+      if (toolEntity) {
+        const toolState = toolEntity.getComponent(ToolStateComponent);
+        toolState.editingEntityId = null;
+        const cursor = this.world.getEntity("cursor");
+        if (cursor) {
+          toolState.suppressedPressCount = cursor.getComponent(MouseComponent).pressCount;
+        }
+      }
+      const textarea = this.textarea;
+      this.textarea = null;
+      this.editingEntityId = null;
+      if (textarea.parentElement) {
+        textarea.parentElement.removeChild(textarea);
+      }
+      this.committing = false;
+      if (entity && effectiveContent !== this.initialContent) {
+        this.onContentChanged();
+      }
+    }
+  };
+
   // src/system/HistorySystem.ts
   var HistorySystem = class extends System {
     constructor(world, query, onAction) {
@@ -2482,7 +3064,8 @@
           DrawnOnLayer,
           Layer,
           CameraComponent,
-          LineAttachmentComponent
+          LineAttachmentComponent,
+          TextComponent
         ]);
         _Whiteboard.componentsRegistered = true;
       }
@@ -2513,6 +3096,7 @@
       this.world.createSystem(LineDrawSystem, toolQuery);
       this.world.createSystem(ResizeSystem, selectionQuery);
       this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
+      this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
       this.world.createSystem(MousePressSystem, selectableShapesQuery);
       this.world.createSystem(DragSystem, selectionQuery);
       this.world.createSystem(LineAttachmentSystem, attachedLinesQuery);
@@ -2522,7 +3106,17 @@
       this.world.createSystem(RenderingSystem, allRenderableQuery, this.renderer);
       this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
     }
+    // Commits an open text edit by blurring its textarea (the blur handler is
+    // the commit); used before camera/viewport changes that would leave the
+    // overlay's geometry stale.
+    commitTextEditIfAny() {
+      const toolState = this.world.getEntity("tool")?.getComponent(ToolStateComponent);
+      if (toolState?.editingEntityId && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }
     resize() {
+      this.commitTextEditIfAny();
       const width = this.$wrapper.clientWidth || window.innerWidth;
       const height = this.$wrapper.clientHeight || window.innerHeight;
       const pixelRatio = window.devicePixelRatio || 1;
@@ -2567,8 +3161,13 @@
         this.cursor.removeComponent(IsMousePressed);
       };
       window.addEventListener("mouseup", this.boundMouseup, { capture: true });
+      this.$canvas.addEventListener("dblclick", (e) => {
+        const w = screenToWorld(this.camera, e.offsetX, e.offsetY);
+        this.cursor.getComponent(MouseComponent).doubleClick(w.x, w.y);
+      });
       this.$canvas.addEventListener("wheel", (e) => {
         e.preventDefault();
+        this.commitTextEditIfAny();
         applyWheel(this.camera, this.cursor.getComponent(MouseComponent), e);
       }, { passive: false });
       menu.addEventListener("click", (e) => {
@@ -2596,6 +3195,8 @@
       });
       this.boundKeydown = (e) => {
         if (!this.isActive) return;
+        const toolStateGuard = this.world.getEntity("tool")?.getComponent(ToolStateComponent);
+        if (toolStateGuard?.editingEntityId) return;
         if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
           e.preventDefault();
           if (e.key === "y" || e.shiftKey) {
@@ -2670,6 +3271,10 @@
             const att = entity.getComponent(LineAttachmentComponent);
             data.attachment = { start: att.start, end: att.end };
           }
+        }
+        if ((data.type === "rectangle" || data.type === "circle") && entity.hasComponent(TextComponent)) {
+          const text = entity.getComponent(TextComponent);
+          data.text = { content: text.content, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color };
         }
         return data;
       });
@@ -2769,6 +3374,26 @@
             entity.removeComponent(LineAttachmentComponent);
           }
         }
+        if (shape.type === "rectangle" || shape.type === "circle") {
+          if (shape.text) {
+            if (entity.hasComponent(TextComponent)) {
+              const text = entity.getComponent(TextComponent);
+              text.content = shape.text.content;
+              text.fontSize = shape.text.fontSize;
+              text.fontFamily = shape.text.fontFamily;
+              text.color = shape.text.color;
+            } else {
+              entity.addComponent(TextComponent, {
+                content: shape.text.content,
+                fontSize: shape.text.fontSize,
+                fontFamily: shape.text.fontFamily,
+                color: shape.text.color
+              });
+            }
+          } else if (entity.hasComponent(TextComponent)) {
+            entity.removeComponent(TextComponent);
+          }
+        }
       });
       stale.forEach((id) => this.world.removeEntity(id));
     }
@@ -2785,11 +3410,14 @@
       const state = this.history.redo();
       if (state !== null) this.loadShapes(state);
     }
-    // Applying a snapshot mid-drag/mid-draw would fight the active gesture.
+    // Applying a snapshot mid-drag/mid-draw/mid-text-edit would fight the
+    // active gesture (or delete the entity under the open textarea).
     canApplyHistory() {
       if (this.cursor.hasComponent(IsMousePressed)) return false;
       const toolEntity = this.world.getEntity("tool");
-      return !toolEntity || toolEntity.getComponent(ToolStateComponent).drawState === "IDLE";
+      if (!toolEntity) return true;
+      const toolState = toolEntity.getComponent(ToolStateComponent);
+      return toolState.drawState === "IDLE" && !toolState.editingEntityId;
     }
     updateHistoryButtons() {
       this.$undoBtn.disabled = !this.history.canUndo();

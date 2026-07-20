@@ -48,6 +48,13 @@ src/
 ├── collision.ts                # pointInRectangle / pointInCircle / pointOnLine helpers
 ├── shape.ts                    # Shape-agnostic hitTestEntity / getEntityBounds / moveEntityBy
 ├── camera.ts                   # Pure camera math: screenToWorld/worldToScreen, zoom-at-cursor, pan, applyWheel
+├── textLayout.ts               # Pure text layout: interior boxes (rect inset / circle inscribed square),
+│                               #   greedy word wrap + char-break, vertical clip, centering (box-local
+│                               #   per-line positions - single owner of placement), measurer seam
+│                               #   (setMeasurer/resetMeasurer for tests), TEXT_PADDING + font defaults
+├── textRaster.ts               # TextTextureCache: rasterizes text blocks to an offscreen 2D canvas at
+│                               #   power-of-two zoom buckets, uploads via IRenderer, per-entity cache
+│                               #   (key: content|box|font|color|bucket), freeze-stretch during resizes
 ├── handles.ts                  # Handle geometry: selection handles + connection points
 │                               #   (getConnectionPoints / connectionPointNear for snap targets)
 ├── autoSelect.ts               # Post-draw auto-switch to cursor tool with fresh shape selected
@@ -55,14 +62,20 @@ src/
 ├── __mocks__/webgl.ts          # Mock WebGL context for headless tests
 ├── __tests__/app.smoke.test.ts # Boots the real app in jsdom, drives tools frame-by-frame
 ├── __tests__/historyManager.test.ts  # Unit tests for the undo/redo stack
+├── __tests__/textLayout.test.ts      # Pure layout tests (fake monospace measurer, no DOM/ECS)
 ├── component/                  # Data containers (no logic)
 │   ├── RectangleComponent.ts   # x, y, width, height, colors
 │   ├── CircleComponent.ts      # x, y (center), radius, colors
 │   ├── LineComponent.ts        # x1, y1, x2, y2, colors, length getter
 │   ├── LineAttachmentComponent.ts  # Per-endpoint pins {entityId, handleId} tying a line to shapes
-│   ├── MouseComponent.ts       # Cursor position (world) + last screen pos + event-time press/release counters
+│   ├── MouseComponent.ts       # Cursor position (world) + last screen pos + event-time press/release
+│   │                           #   AND dblclick counters
 │   ├── CameraComponent.ts      # x, y (world coords of viewport top-left), scale (zoom)
-│   ├── ToolStateComponent.ts   # currentTool (cursor|rectangle|circle|line), drawState, preview id
+│   ├── TextComponent.ts        # content, fontSize (world units), fontFamily, color - only on shapes
+│   │                           #   that have text; removed on empty commit
+│   ├── ToolStateComponent.ts   # currentTool (cursor|rectangle|circle|line), drawState, preview id;
+│   │                           #   class fields editingEntityId + suppressedPressCount (text editing,
+│   │                           #   NOT touched by reset())
 │   ├── SelectionRectangleComponent.ts  # Selected entities map + isDirty + claim flags + connectionSnap
 │   ├── Layer.ts / DrawnOnLayer.ts      # Layer support (registered, not yet used)
 │   └── Is*.ts                  # Tag components (IsRendered, IsMouseOver, IsMousePressed, IsSelected)
@@ -74,6 +87,11 @@ src/
     ├── ResizeSystem.ts         # Resize selected shape via handle drag (runs BEFORE MousePress/Drag,
     │                           #   claims the press via SelectionRectangleComponent.resizeHandleId);
     │                           #   grabbing an attached line endpoint detaches that side
+    ├── TextEditSystem.ts       # Double-click a rect/circle -> transparent textarea overlay over the
+    │                           #   interior box; commit on blur/Escape (Escape commits, not cancels);
+    │                           #   empty commit removes TextComponent; commit stamps
+    │                           #   suppressedPressCount so the click-away press is inert; calls
+    │                           #   recordHistory() when content changed (Escape has no release edge)
     ├── MousePressSystem.ts     # Click selection, all shape types (cursor tool only, edge-triggered, empty click clears)
     ├── DragSystem.ts           # Move selected shapes of any type (cursor tool only); dragging an
     │                           #   attached line's body detaches both ends first
@@ -81,7 +99,9 @@ src/
     │                           #   every frame (after Drag/Resize, before Selection/Render)
     ├── MouseOverSystem.ts / MouseOutSystem.ts  # Hover enter/exit tags (cursor tool only; tags only, NO visual effect)
     ├── SelectionSystem.ts      # Selection bounding rectangle: tight union of selected shapes' bounds (no padding)
-    ├── RenderSystem.ts         # Clears canvas, draws all IsRendered entities plainly, the selection
+    ├── RenderSystem.ts         # Clears canvas, draws all IsRendered entities plainly (each shape's
+    │                           #   text right after it, as a textured quad from the owned
+    │                           #   TextTextureCache; skips the entity being edited), the selection
     │                           #   overlay, then snap-target dots while a connection drag is active
     ├── ConnectionSystem.ts     # Draws new lines from connection handles, snapping the free endpoint
     │                           #   to other shapes' connection points and recording attachments
@@ -116,8 +136,9 @@ dist/
 
 ### System Execution Order (Whiteboard.setupECS)
 
-ToolState → Rectangle/Circle/LineDraw → **Resize** → **Connection** → MousePress → Drag → **LineAttachment** → MouseOver → MouseOut → Selection → Render → **History** (last).
+ToolState → Rectangle/Circle/LineDraw → **Resize** → **Connection** → **TextEdit** → MousePress → Drag → **LineAttachment** → MouseOver → MouseOut → Selection → Render → **History** (last).
 Resize/Connection must precede MousePress/Drag: a press on a handle sets `resizeHandleId`/`connectionHandleId` and the others skip it.
+A text-edit click-away commit stamps `ToolStateComponent.suppressedPressCount`; all four press consumers (Resize, Connection, MousePress, Drag) skip any press with `pressCount <= suppressedPressCount` for its **entire hold** (Drag has no edge gate, so the guard sits before its movement logic).
 LineAttachment must follow every system that mutates shapes (Resize, Connection, Drag) and precede Selection/Render, so re-pinned lines render in the same frame.
 History must run last so its release-edge snapshot sees the frame's fully finalized state (draw committed, drag ended, lines re-pinned).
 
@@ -129,10 +150,17 @@ All input handlers live in `Whiteboard.bindEvents`:
 2. `mousedown` (canvas) → `MouseComponent.press(worldX, worldY)` (records event-time position, increments `pressCount`) + add `IsMousePressed` tag
 3. `mouseup` (bound on **window**, so releases outside the wrapper still end the press) → `MouseComponent.release()` (increments `releaseCount`) + remove `IsMousePressed`
 4. `wheel` (canvas, `passive: false` + `preventDefault`) → `applyWheel`: ctrl/cmd+wheel (= trackpad pinch) zooms at the cursor (world point under cursor stays fixed, clamped 0.1–8), plain wheel pans; afterwards the mouse world position is re-derived from `screenX/screenY` so mid-gesture zooms don't go stale
-5. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`)
-6. Escape → cancels in-progress drawing (removes preview entity)
-7. Cmd/Ctrl+Z → undo; Cmd/Ctrl+Shift+Z or Ctrl+Y → redo (gated on `isActive` like Escape,
+5. `dblclick` (canvas) → `MouseComponent.doubleClick(worldX, worldY)` (event-time counter, same
+   idiom as press) — consumed by TextEditSystem to open the text editor
+6. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`)
+7. Escape → cancels in-progress drawing (removes preview entity)
+8. Cmd/Ctrl+Z → undo; Cmd/Ctrl+Shift+Z or Ctrl+Y → redo (gated on `isActive` like Escape,
    `preventDefault` blocks native undo; no-ops while the button is held or a draw is mid-gesture)
+9. **While a text edit is open** (`ToolStateComponent.editingEntityId` set): the document keydown
+   handler skips both the Escape and undo/redo branches (the textarea owns the keyboard — its own
+   keydown listener also stops propagation as the belt); wheel and container-resize **commit the
+   edit first** by blurring the textarea (the blur handler IS the commit), then proceed;
+   `canApplyHistory()` refuses so undo can't mutate the entity under the open editor
 
 Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` against their own last-seen values (consumed every frame, even when tool-gated). This is event-driven, so a release+press pair landing between two frames is still seen; never frame-sample `IsMousePressed` for edge detection. Hit-tests and drag anchors use the event-time `pressX/pressY`, not the frame-time position.
 
@@ -172,6 +200,20 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   **differential updates** (`loadShapes()`): entities patched in place by preserved id, missing ones
   recreated with their original id, extras removed, selection cleared first — so line attachments
   and z-order survive. Camera is never touched. Keyboard: Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, Ctrl+Y
+- **Text inside shapes** (TextComponent + TextEditSystem + textLayout/textRaster): double-click a
+  rect/circle (cursor tool) to edit; transparent textarea overlay over the interior box (rect inset
+  by `TEXT_PADDING` = 8 world units; circle: inscribed square side r·√2 − 2·PAD); blur/Escape
+  commits (Escape commits, never cancels; Enter = newline; empty commit removes the component).
+  Text wraps greedily (long words char-break, `\n` respected), clips whole lines vertically, and is
+  centered both ways — all placement computed in `textLayout.ts` (box-local per-line positions).
+  Rendered as WebGL textured quads: rasterized on an offscreen 2D canvas at
+  `zoomBucket(2^round(log2 scale)) × DPR`, cached per entity, re-sharpened per bucket; during a
+  handle resize the cached texture stretches and re-wraps on release. Text serializes through
+  `saveShapes()` (full props) with add/update/remove reconcile in `loadShapes()`, and every
+  committed edit is exactly one undo step (TextEditSystem calls `recordHistory()` on change —
+  Escape commits produce no release edge for HistorySystem to see). fontSize is **world units**
+  (text zooms with the world); the layout measurer is injectable (`setMeasurer`) because jsdom
+  has no `measureText`
 - Hovering has **no visual effect** — IsMouseOver tags are still maintained (cursor mode only) for
   future cursor feedback, but RenderSystem ignores them
 - **Zoom + pan camera** (`camera` entity, `src/camera.ts`): pinch / ctrl/cmd+wheel zooms toward the
@@ -192,7 +234,10 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
 - Multi-entity selection + SHIFT+click additive selection (needs keyboard state; SelectionSystem
   already computes union bounds, MousePressSystem is single-select)
 - Quadtree integration for collision queries (package installed, unused)
-- WebGL text rendering (IRenderer.text is a stub)
+- Text styling UI (font size/family/color are per-shape data already, but fixed to defaults)
+- Text overlay niceties: vertical centering inside the textarea (currently top-aligned → small
+  jump on commit), wheel over the overlay is inert, textarea doesn't follow camera/resize
+  (both commit instead)
 - Layers (components registered, unused)
 
 ## Performance Notes

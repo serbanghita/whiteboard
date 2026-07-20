@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+### Added
+- Text inside shapes: double-click a rectangle or circle (cursor tool) to type into it. Text wraps
+  inside a padded interior box (rect inset by 8 world units; circle uses its inscribed square),
+  is centered both ways, and clips lines that don't fit vertically. Editing happens in a
+  transparent `textarea` overlay; blur or Escape commits (Escape commits, it does not cancel),
+  Enter inserts a newline, and an empty commit removes the text. Rendered in WebGL via a new
+  textured-quad path: text blocks are rasterized on an offscreen 2D canvas and cached as
+  textures per entity, re-sharpened at each power-of-two zoom bucket; during a handle resize the
+  cached texture stretches and re-wraps crisply on release.
+- Text persists through `saveShapes()`/`loadShapes()` (full props: content, font size/family,
+  color) and participates in undo/redo: every committed edit is exactly one history step,
+  including Escape commits; Cmd/Ctrl+Z inside the editor stays the textarea's native undo.
+- `textLayout.ts` (pure layout: interior boxes, greedy wrap, clip, centering, injectable
+  measurer), `textRaster.ts` (raster + texture cache), `TextComponent`, `TextEditSystem`, and
+  `IRenderer.createTextureFromCanvas`/`texturedQuad`/`deleteTexture`/`maxTextureSize`.
+
+### Removed
+- The never-implemented `IRenderer.text()` stub and `TextOptions` (replaced by the textured-quad
+  path above).
 
 ## [1.2.0] - 2026-07-20
 ### Added

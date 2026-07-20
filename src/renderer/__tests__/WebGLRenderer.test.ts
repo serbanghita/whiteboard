@@ -13,20 +13,33 @@ describe('WebGLRenderer', () => {
   });
 
   describe('constructor', () => {
-    it('initializes shader program', () => {
+    it('initializes the basic and textured shader programs', () => {
       const newGl = createMockWebGLContext();
       new WebGLRenderer(newGl);
 
       const programCalls = newGl._calls.filter(c => c.method === 'createProgram');
-      expect(programCalls.length).toBe(1);
+      expect(programCalls.length).toBe(2);
+      // The basic program must end up resident (all shape draws assume it).
+      const useCalls = newGl._calls.filter(c => c.method === 'useProgram');
+      expect(useCalls.length).toBeGreaterThan(0);
     });
 
-    it('creates position buffer', () => {
+    it('creates position and texcoord buffers', () => {
       const newGl = createMockWebGLContext();
       new WebGLRenderer(newGl);
 
       const bufferCalls = newGl._calls.filter(c => c.method === 'createBuffer');
-      expect(bufferCalls.length).toBe(1);
+      expect(bufferCalls.length).toBe(2);
+    });
+
+    it('enables premultiplied-alpha blending', () => {
+      const newGl = createMockWebGLContext();
+      new WebGLRenderer(newGl);
+
+      const enableCalls = newGl._calls.filter(c => c.method === 'enable');
+      expect(enableCalls.some(c => c.args[0] === newGl.BLEND)).toBe(true);
+      const blendCalls = newGl._calls.filter(c => c.method === 'blendFunc');
+      expect(blendCalls.at(-1)!.args).toEqual([newGl.ONE, newGl.ONE_MINUS_SRC_ALPHA]);
     });
 
     it('sets resolution uniform', () => {
@@ -240,18 +253,58 @@ describe('WebGLRenderer', () => {
     });
   });
 
-  describe('text', () => {
-    it('logs warning for unimplemented text rendering', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  describe('textures', () => {
+    it('uploads a canvas as an NPOT-safe texture (clamp, linear, no mipmaps)', () => {
+      const canvas = { width: 32, height: 16 } as HTMLCanvasElement;
+      const handle = renderer.createTextureFromCanvas(canvas);
 
-      renderer.text('Hello', 10, 20);
+      expect(handle).toBeTruthy();
+      expect(gl._calls.filter(c => c.method === 'createTexture').length).toBe(1);
+      const texImageCalls = gl._calls.filter(c => c.method === 'texImage2D');
+      expect(texImageCalls.length).toBe(1);
+      expect(texImageCalls[0].args.at(-1)).toBe(canvas);
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        'WebGL text rendering not yet implemented. Text:',
-        'Hello'
-      );
+      const paramCalls = gl._calls.filter(c => c.method === 'texParameteri');
+      const params = new Map(paramCalls.map(c => [c.args[1], c.args[2]]));
+      expect(params.get(gl.TEXTURE_WRAP_S)).toBe(gl.CLAMP_TO_EDGE);
+      expect(params.get(gl.TEXTURE_WRAP_T)).toBe(gl.CLAMP_TO_EDGE);
+      expect(params.get(gl.TEXTURE_MIN_FILTER)).toBe(gl.LINEAR);
+      expect(params.get(gl.TEXTURE_MAG_FILTER)).toBe(gl.LINEAR);
 
-      warnSpy.mockRestore();
+      // Premultiplied alpha upload to match the blend function.
+      const pixelCalls = gl._calls.filter(c => c.method === 'pixelStorei');
+      expect(pixelCalls.some(c => c.args[0] === gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL && c.args[1] === true)).toBe(true);
+    });
+
+    it('deletes textures through the handle', () => {
+      const handle = renderer.createTextureFromCanvas({ width: 8, height: 8 } as HTMLCanvasElement);
+      renderer.deleteTexture(handle);
+
+      const deleteCalls = gl._calls.filter(c => c.method === 'deleteTexture');
+      expect(deleteCalls.length).toBe(1);
+      expect(deleteCalls[0].args[0]).toBe(handle);
+    });
+
+    it('draws a textured quad with the camera pushed to the textured program', () => {
+      renderer.setCamera(2, 100, 50);
+      const handle = renderer.createTextureFromCanvas({ width: 8, height: 8 } as HTMLCanvasElement);
+      gl._calls.length = 0;
+
+      renderer.texturedQuad(handle, 10, 20, 30, 40);
+
+      // Program switched for the draw and back to the basic one afterwards.
+      const useCalls = gl._calls.filter(c => c.method === 'useProgram');
+      expect(useCalls.length).toBe(2);
+      // Camera/resolution uniforms pushed per draw (per-program state).
+      const uniform2fCalls = gl._calls.filter(c => c.method === 'uniform2f');
+      expect(uniform2fCalls.some(c => c.args[1] === 100 && c.args[2] === 50)).toBe(true);
+      const uniform1fCalls = gl._calls.filter(c => c.method === 'uniform1f');
+      expect(uniform1fCalls.at(-1)!.args[1]).toBe(2);
+      // One 6-vertex triangle draw, texture bound on unit 0.
+      const drawCalls = gl._calls.filter(c => c.method === 'drawArrays');
+      expect(drawCalls).toEqual([{ method: 'drawArrays', args: [gl.TRIANGLES, 0, 6] }]);
+      expect(gl._calls.some(c => c.method === 'activeTexture' && c.args[0] === gl.TEXTURE0)).toBe(true);
+      expect(gl._calls.some(c => c.method === 'bindTexture' && c.args[1] === handle)).toBe(true);
     });
   });
 });

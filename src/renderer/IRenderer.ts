@@ -4,11 +4,11 @@ export interface DrawOptions {
   strokeWidth?: number;
 }
 
-export interface TextOptions {
-  fontSize?: number;
-  fontFamily?: string;
-  color?: string;
-}
+/**
+ * Opaque handle to a GPU texture. Only the renderer that created it knows
+ * what is inside, so IRenderer stays WebGL-agnostic.
+ */
+export type TextureHandle = object;
 
 export interface IRenderer {
   /**
@@ -62,13 +62,25 @@ export interface IRenderer {
   line(x1: number, y1: number, x2: number, y2: number, options?: DrawOptions): void;
 
   /**
-   * Draw text
-   * @param str Text string to draw
-   * @param x X coordinate
-   * @param y Y coordinate
-   * @param options Text options (font, size, color)
+   * Upload a rasterized canvas as a GPU texture.
+   * @param source Offscreen canvas holding the rasterized pixels
    */
-  text(str: string, x: number, y: number, options?: TextOptions): void;
+  createTextureFromCanvas(source: HTMLCanvasElement): TextureHandle;
+
+  /**
+   * Free a texture previously created with createTextureFromCanvas.
+   */
+  deleteTexture(handle: TextureHandle): void;
+
+  /**
+   * Draw a texture stretched over a world-space quad (full 0..1 texcoords).
+   * @param handle Texture to draw
+   * @param x Top-left X coordinate (world)
+   * @param y Top-left Y coordinate (world)
+   * @param width Quad width (world)
+   * @param height Quad height (world)
+   */
+  texturedQuad(handle: TextureHandle, x: number, y: number, width: number, height: number): void;
 
   /**
    * Draw a small dot/point

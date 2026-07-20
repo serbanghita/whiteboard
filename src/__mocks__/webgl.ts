@@ -17,6 +17,7 @@ let mockShaderId = 0;
 let mockProgramId = 0;
 let mockBufferId = 0;
 let mockUniformLocationId = 0;
+let mockTextureId = 0;
 
 export function createMockWebGLContext(): MockWebGLRenderingContext {
   const calls: { method: string; args: unknown[] }[] = [];
@@ -52,6 +53,23 @@ export function createMockWebGLContext(): MockWebGLRenderingContext {
     FRAGMENT_SHADER: 0x8B30,
     COMPILE_STATUS: 0x8B81,
     LINK_STATUS: 0x8B82,
+    // Texture / blending constants (textured-quad text path)
+    TEXTURE_2D: 0x0DE1,
+    TEXTURE0: 0x84C0,
+    RGBA: 0x1908,
+    UNSIGNED_BYTE: 0x1401,
+    LINEAR: 0x2601,
+    CLAMP_TO_EDGE: 0x812F,
+    TEXTURE_WRAP_S: 0x2802,
+    TEXTURE_WRAP_T: 0x2803,
+    TEXTURE_MIN_FILTER: 0x2801,
+    TEXTURE_MAG_FILTER: 0x2800,
+    BLEND: 0x0BE2,
+    ONE: 1,
+    ONE_MINUS_SRC_ALPHA: 0x0303,
+    UNPACK_PREMULTIPLY_ALPHA_WEBGL: 0x9241,
+    UNPACK_FLIP_Y_WEBGL: 0x9240,
+    MAX_TEXTURE_SIZE: 0x0D33,
 
     // Shader methods
     createShader: vi.fn((type: number) => {
@@ -160,6 +178,11 @@ export function createMockWebGLContext(): MockWebGLRenderingContext {
       uniforms.set(location, [x, y, z, w]);
     }),
 
+    uniform1i: vi.fn((location: WebGLUniformLocation, x: number) => {
+      trackCall('uniform1i', [location, x]);
+      uniforms.set(location, [x]);
+    }),
+
     // Buffer methods
     createBuffer: vi.fn(() => {
       trackCall('createBuffer', []);
@@ -214,6 +237,42 @@ export function createMockWebGLContext(): MockWebGLRenderingContext {
     blendFunc: vi.fn((sfactor: number, dfactor: number) => {
       trackCall('blendFunc', [sfactor, dfactor]);
     }),
+
+    // Texture methods (textured-quad text path)
+    createTexture: vi.fn(() => {
+      trackCall('createTexture', []);
+      return { _id: ++mockTextureId } as unknown as WebGLTexture;
+    }),
+
+    deleteTexture: vi.fn((texture: WebGLTexture) => {
+      trackCall('deleteTexture', [texture]);
+    }),
+
+    bindTexture: vi.fn((target: number, texture: WebGLTexture | null) => {
+      trackCall('bindTexture', [target, texture]);
+    }),
+
+    texImage2D: vi.fn((...args: unknown[]) => {
+      trackCall('texImage2D', args);
+    }),
+
+    texParameteri: vi.fn((target: number, pname: number, param: number) => {
+      trackCall('texParameteri', [target, pname, param]);
+    }),
+
+    activeTexture: vi.fn((texture: number) => {
+      trackCall('activeTexture', [texture]);
+    }),
+
+    pixelStorei: vi.fn((pname: number, param: number | boolean) => {
+      trackCall('pixelStorei', [pname, param]);
+    }),
+
+    getParameter: vi.fn((pname: number) => {
+      trackCall('getParameter', [pname]);
+      if (pname === 0x0D33) return 4096; // MAX_TEXTURE_SIZE
+      return null;
+    }),
   };
 
   return context as MockWebGLRenderingContext;
@@ -222,11 +281,33 @@ export function createMockWebGLContext(): MockWebGLRenderingContext {
 // Global setup for tests
 const mockContext = createMockWebGLContext();
 
+// Minimal 2D context stub: jsdom has no canvas implementation, but the text
+// rasterizer (textRaster.ts) asks for a '2d' context on an offscreen canvas.
+// The stub keeps the virtual console clean and lets the raster path run;
+// pixel output is never asserted (layout tests inject a fake measurer).
+export function createMock2DContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const context: Partial<CanvasRenderingContext2D> = {
+    canvas,
+    font: '',
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    fillStyle: '#000',
+    fillText: vi.fn(),
+    clearRect: vi.fn(),
+    fillRect: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: 0 } as TextMetrics)),
+  };
+  return context as CanvasRenderingContext2D;
+}
+
 // Override HTMLCanvasElement.getContext to return mock WebGL context
 const originalGetContext = HTMLCanvasElement.prototype.getContext;
 HTMLCanvasElement.prototype.getContext = function(contextId: string, options?: unknown) {
   if (contextId === 'webgl' || contextId === 'experimental-webgl') {
     return createMockWebGLContext() as unknown as RenderingContext;
+  }
+  if (contextId === '2d') {
+    return createMock2DContext(this) as unknown as RenderingContext;
   }
   return originalGetContext.call(this, contextId, options as CanvasRenderingContext2DSettings);
 } as typeof HTMLCanvasElement.prototype.getContext;

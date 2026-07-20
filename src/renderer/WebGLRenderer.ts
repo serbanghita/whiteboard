@@ -1,5 +1,11 @@
-import { IRenderer, DrawOptions, TextOptions } from "./IRenderer";
-import { ShaderProgram, vertexShaderSource, fragmentShaderSource } from "./shaders";
+import { IRenderer, DrawOptions, TextureHandle } from "./IRenderer";
+import {
+  ShaderProgram,
+  vertexShaderSource,
+  fragmentShaderSource,
+  texturedVertexShaderSource,
+  texturedFragmentShaderSource,
+} from "./shaders";
 import { parseColor } from "./colorUtils";
 
 /**
@@ -14,9 +20,35 @@ export default class WebGLRenderer implements IRenderer {
   private translateUniformLocation: WebGLUniformLocation;
   private scaleUniformLocation: WebGLUniformLocation;
 
+  // Textured-quad path (rasterized text). Uniforms are per-program state, so
+  // the textured program keeps its own camera/resolution locations; the
+  // cached values below are pushed to it on every textured draw.
+  private texturedProgram: ShaderProgram;
+  private texcoordBuffer: WebGLBuffer;
+  private texturedPositionLocation: number;
+  private texturedTexcoordLocation: number;
+  private texturedResolutionLocation: WebGLUniformLocation;
+  private texturedTranslateLocation: WebGLUniformLocation;
+  private texturedScaleLocation: WebGLUniformLocation;
+  private cachedResolution: { width: number; height: number };
+  private cachedCamera = { scale: 1, x: 0, y: 0 };
+
   constructor(private gl: WebGLRenderingContext) {
     // Initialize shader program
     this.shaderProgram = new ShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
+
+    // Textured program (set its sampler to texture unit 0 once).
+    this.texturedProgram = new ShaderProgram(gl, texturedVertexShaderSource, texturedFragmentShaderSource);
+    this.texturedPositionLocation = this.texturedProgram.getAttributeLocation("a_position");
+    this.texturedTexcoordLocation = this.texturedProgram.getAttributeLocation("a_texcoord");
+    this.texturedResolutionLocation = this.texturedProgram.getUniformLocation("u_resolution");
+    this.texturedTranslateLocation = this.texturedProgram.getUniformLocation("u_translate");
+    this.texturedScaleLocation = this.texturedProgram.getUniformLocation("u_scale");
+    this.texturedProgram.use();
+    gl.uniform1i(this.texturedProgram.getUniformLocation("u_texture"), 0);
+
+    // The basic program is the resident one; every non-textured draw assumes
+    // it is active.
     this.shaderProgram.use();
 
     // Get attribute and uniform locations
@@ -33,7 +65,20 @@ export default class WebGLRenderer implements IRenderer {
     }
     this.positionBuffer = buffer;
 
+    const texcoordBuffer = gl.createBuffer();
+    if (!texcoordBuffer) {
+      throw new Error("Failed to create WebGL buffer");
+    }
+    this.texcoordBuffer = texcoordBuffer;
+
+    // Alpha blending for anti-aliased text edges (premultiplied alpha, see
+    // createTextureFromCanvas). Solid shapes write alpha=1, so this is a
+    // no-op for them.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
     // Set resolution uniform
+    this.cachedResolution = { width: gl.canvas.width, height: gl.canvas.height };
     gl.uniform2f(this.resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
 
     // Identity camera, so camera-less usage keeps the old pixel mapping
@@ -42,10 +87,12 @@ export default class WebGLRenderer implements IRenderer {
   }
 
   public setResolution(width: number, height: number): void {
+    this.cachedResolution = { width, height };
     this.gl.uniform2f(this.resolutionUniformLocation, width, height);
   }
 
   public setCamera(scale: number, x: number, y: number): void {
+    this.cachedCamera = { scale, x, y };
     this.gl.uniform2f(this.translateUniformLocation, x, y);
     this.gl.uniform1f(this.scaleUniformLocation, scale);
   }
@@ -168,10 +215,82 @@ export default class WebGLRenderer implements IRenderer {
     this.drawLineInternal(x1, y1, x2, y2, lineWidth);
   }
 
-  public text(str: string, x: number, y: number, options?: TextOptions): void {
-    // Text rendering requires MSDF or canvas texture approach
-    // For now, this is a placeholder - text will be implemented in a future iteration
-    console.warn("WebGL text rendering not yet implemented. Text:", str);
+  public createTextureFromCanvas(source: HTMLCanvasElement): TextureHandle {
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) {
+      throw new Error("Failed to create WebGL texture");
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    // Premultiplied alpha to match blendFunc(ONE, ONE_MINUS_SRC_ALPHA).
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    // Row 0 of the canvas (its top) stays row 0 of the texture; texcoords in
+    // texturedQuad put v=0 at the quad's world-space top, so no flip needed.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+
+    // WebGL1 NPOT textures: clamp, linear filtering, no mipmaps.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    return texture;
+  }
+
+  public deleteTexture(handle: TextureHandle): void {
+    this.gl.deleteTexture(handle as WebGLTexture);
+  }
+
+  public texturedQuad(handle: TextureHandle, x: number, y: number, width: number, height: number): void {
+    const gl = this.gl;
+
+    this.texturedProgram.use();
+    // Uniforms are per-program: push the cached camera/resolution so the
+    // textured quad lands in the same world as the shapes.
+    gl.uniform2f(this.texturedResolutionLocation, this.cachedResolution.width, this.cachedResolution.height);
+    gl.uniform2f(this.texturedTranslateLocation, this.cachedCamera.x, this.cachedCamera.y);
+    gl.uniform1f(this.texturedScaleLocation, this.cachedCamera.scale);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, handle as WebGLTexture);
+
+    const x2 = x + width;
+    const y2 = y + height;
+    const positions = new Float32Array([
+      x, y,
+      x2, y,
+      x, y2,
+      x, y2,
+      x2, y,
+      x2, y2,
+    ]);
+    const texcoords = new Float32Array([
+      0, 0,
+      1, 0,
+      0, 1,
+      0, 1,
+      1, 0,
+      1, 1,
+    ]);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(this.texturedPositionLocation);
+    gl.vertexAttribPointer(this.texturedPositionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.texcoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(this.texturedTexcoordLocation);
+    gl.vertexAttribPointer(this.texturedTexcoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    // Leave the basic program resident; its own uniform state is retained by
+    // WebGL, and every basic draw re-binds its attributes.
+    gl.disableVertexAttribArray(this.texturedTexcoordLocation);
+    this.shaderProgram.use();
   }
 
   public dot(x: number, y: number, options?: DrawOptions): void {

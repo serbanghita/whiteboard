@@ -99,8 +99,8 @@
 
   // ../gamedev-published-repos/ecs/src/Entity.ts
   var Entity = class {
-    constructor(world2, id) {
-      this.world = world2;
+    constructor(world, id) {
+      this.world = world;
       this.id = id;
     }
     componentsBitmask = 0n;
@@ -186,8 +186,8 @@
      * @param id
      * @param filters
      */
-    constructor(world2, id, filters) {
-      this.world = world2;
+    constructor(world, id, filters) {
+      this.world = world;
       this.id = id;
       this.filters = filters;
       this.checkIfComponentsAreRegistered();
@@ -268,8 +268,8 @@
 
   // ../gamedev-published-repos/ecs/src/System.ts
   var System = class {
-    constructor(world2, query, ..._args) {
-      this.world = world2;
+    constructor(world, query, ..._args) {
+      this.world = world;
       this.query = query;
       this.ticks = 0;
     }
@@ -535,277 +535,6 @@
     }
   };
 
-  // src/component/RectangleComponent.ts
-  var RectangleComponent = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-    }
-    get x() {
-      return this.properties.x;
-    }
-    set x(value) {
-      this.properties.x = value;
-    }
-    get y() {
-      return this.properties.y;
-    }
-    set y(value) {
-      this.properties.y = value;
-    }
-    get width() {
-      return this.properties.width;
-    }
-    set width(value) {
-      this.properties.width = value;
-    }
-    get height() {
-      return this.properties.height;
-    }
-    set height(value) {
-      this.properties.height = value;
-    }
-    get fillColor() {
-      return this.properties.fillColor;
-    }
-    set fillColor(value) {
-      this.properties.fillColor = value;
-    }
-    get strokeColor() {
-      return this.properties.strokeColor;
-    }
-    set strokeColor(value) {
-      this.properties.strokeColor = value;
-    }
-    get strokeWidth() {
-      return this.properties.strokeWidth;
-    }
-    set strokeWidth(value) {
-      this.properties.strokeWidth = value;
-    }
-    // Computed properties for convenience
-    get centerX() {
-      return this.properties.x + this.properties.width / 2;
-    }
-    get centerY() {
-      return this.properties.y + this.properties.height / 2;
-    }
-    get right() {
-      return this.properties.x + this.properties.width;
-    }
-    get bottom() {
-      return this.properties.y + this.properties.height;
-    }
-  };
-
-  // src/component/ToolStateComponent.ts
-  var ToolStateComponent = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-    }
-    get currentTool() {
-      return this.properties.currentTool;
-    }
-    set currentTool(tool2) {
-      this.properties.currentTool = tool2;
-    }
-    get drawState() {
-      return this.properties.drawState;
-    }
-    set drawState(state) {
-      this.properties.drawState = state;
-    }
-    get startX() {
-      return this.properties.startX;
-    }
-    set startX(x) {
-      this.properties.startX = x;
-    }
-    get startY() {
-      return this.properties.startY;
-    }
-    set startY(y) {
-      this.properties.startY = y;
-    }
-    get previewEntityId() {
-      return this.properties.previewEntityId;
-    }
-    set previewEntityId(id) {
-      this.properties.previewEntityId = id;
-    }
-    reset() {
-      this.properties.drawState = "IDLE";
-      this.properties.startX = void 0;
-      this.properties.startY = void 0;
-      this.properties.previewEntityId = void 0;
-    }
-  };
-
-  // src/render.ts
-  var $wrapper;
-  var $canvas;
-  var gl;
-  function getPixelRatio() {
-    return window.devicePixelRatio || 1;
-  }
-  function createWrapper(id) {
-    $wrapper = document.createElement("div");
-    $wrapper.id = id;
-    $wrapper.style.position = "fixed";
-    $wrapper.style.inset = "0";
-    document.body.appendChild($wrapper);
-    return $wrapper;
-  }
-  function createCanvas(id) {
-    $canvas = document.createElement("canvas");
-    $canvas.id = id;
-    $canvas.style.display = "block";
-    $canvas.style.width = "100%";
-    $canvas.style.height = "100%";
-    $canvas.style.background = "white";
-    const glContext = $canvas.getContext("webgl");
-    if (!glContext) {
-      throw new Error("WebGL is not supported in this browser.");
-    }
-    gl = glContext;
-    resizeCanvasToViewport();
-    gl.clearColor(1, 1, 1, 1);
-    if (!$wrapper) {
-      throw new Error("Wrapper DOM element was not created.");
-    }
-    $wrapper.appendChild($canvas);
-    return { $canvas, gl };
-  }
-  function resizeCanvasToViewport() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    $canvas.width = width * getPixelRatio();
-    $canvas.height = height * getPixelRatio();
-    gl.viewport(0, 0, $canvas.width, $canvas.height);
-    return { width, height };
-  }
-  function mousePress(fn) {
-    $canvas.addEventListener("mousedown", fn, { capture: true });
-  }
-  function mouseRelease(fn) {
-    window.addEventListener("mouseup", fn, { capture: true });
-  }
-  function wheel(fn) {
-    $canvas.addEventListener("wheel", fn, { passive: false });
-  }
-  function mouseMove(fn) {
-    $canvas.addEventListener("mousemove", fn, { capture: true });
-  }
-  function setActiveToolButton(tool2) {
-    const floatingMenu = document.querySelector(".floating-menu");
-    if (!floatingMenu) return;
-    floatingMenu.querySelectorAll("button").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.tool === tool2);
-    });
-  }
-  function initFloatingMenu(world2) {
-    const floatingMenu = document.querySelector(".floating-menu");
-    if (!floatingMenu) {
-      console.warn("Floating menu not found in DOM");
-      return;
-    }
-    floatingMenu.addEventListener("click", (e) => {
-      const button = e.target.closest("[data-tool]");
-      if (!button) return;
-      const tool2 = button.dataset.tool;
-      if (!tool2) return;
-      setActiveToolButton(tool2);
-      const toolEntity = world2.getEntity("tool");
-      if (toolEntity) {
-        const toolState = toolEntity.getComponent(ToolStateComponent);
-        if (toolState.previewEntityId) {
-          world2.removeEntity(toolState.previewEntityId);
-        }
-        toolState.currentTool = tool2;
-        toolState.reset();
-        console.log(`Tool changed to: ${tool2}`);
-      }
-    });
-  }
-  function initKeyboardEvents(world2) {
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        const toolEntity = world2.getEntity("tool");
-        if (toolEntity) {
-          const toolState = toolEntity.getComponent(ToolStateComponent);
-          if (toolState.drawState === "FIRST_POINT_SET") {
-            if (toolState.previewEntityId) {
-              world2.removeEntity(toolState.previewEntityId);
-            }
-            toolState.reset();
-            console.log("Drawing cancelled");
-          }
-        }
-      }
-    });
-  }
-
-  // src/component/CameraComponent.ts
-  var CameraComponent = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-    }
-    get x() {
-      return this.properties.x;
-    }
-    set x(value) {
-      this.properties.x = value;
-    }
-    get y() {
-      return this.properties.y;
-    }
-    set y(value) {
-      this.properties.y = value;
-    }
-    get scale() {
-      return this.properties.scale;
-    }
-    set scale(value) {
-      this.properties.scale = value;
-    }
-  };
-
-  // src/camera.ts
-  var MIN_ZOOM = 0.1;
-  var MAX_ZOOM = 8;
-  var ZOOM_SENSITIVITY = 0.01;
-  function screenToWorld(cam, screenX, screenY) {
-    return { x: cam.x + screenX / cam.scale, y: cam.y + screenY / cam.scale };
-  }
-  function zoomCameraAt(cam, screenX, screenY, deltaY) {
-    const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, cam.scale * Math.exp(-deltaY * ZOOM_SENSITIVITY)));
-    cam.x += screenX / cam.scale - screenX / newScale;
-    cam.y += screenY / cam.scale - screenY / newScale;
-    cam.scale = newScale;
-  }
-  function panCamera(cam, deltaX, deltaY) {
-    cam.x += deltaX / cam.scale;
-    cam.y += deltaY / cam.scale;
-  }
-  function applyWheel(cam, mouse, e) {
-    if (e.ctrlKey || e.metaKey) {
-      zoomCameraAt(cam, e.offsetX, e.offsetY, e.deltaY);
-    } else {
-      panCamera(cam, e.deltaX, e.deltaY);
-    }
-    const world2 = screenToWorld(cam, mouse.screenX, mouse.screenY);
-    mouse.setXY(world2.x, world2.y);
-  }
-  function getCameraScale(world2) {
-    const cameraEntity = world2.getEntity("camera");
-    if (!cameraEntity || !cameraEntity.hasComponent(CameraComponent)) {
-      return 1;
-    }
-    return cameraEntity.getComponent(CameraComponent).scale;
-  }
-
   // src/renderer/shaders/basic.ts
   var vertexShaderSource = `
   attribute vec2 a_position;
@@ -843,10 +572,10 @@
 
   // src/renderer/shaders/ShaderProgram.ts
   var ShaderProgram = class {
-    constructor(gl3, vertexSource, fragmentSource) {
-      this.gl = gl3;
-      const vertexShader = this.compileShader(gl3.VERTEX_SHADER, vertexSource);
-      const fragmentShader = this.compileShader(gl3.FRAGMENT_SHADER, fragmentSource);
+    constructor(gl, vertexSource, fragmentSource) {
+      this.gl = gl;
+      const vertexShader = this.compileShader(gl.VERTEX_SHADER, vertexSource);
+      const fragmentShader = this.compileShader(gl.FRAGMENT_SHADER, fragmentSource);
       this.program = this.createProgram(vertexShader, fragmentShader);
     }
     program;
@@ -965,23 +694,23 @@
 
   // src/renderer/WebGLRenderer.ts
   var WebGLRenderer = class {
-    constructor(gl3) {
-      this.gl = gl3;
-      this.shaderProgram = new ShaderProgram(gl3, vertexShaderSource, fragmentShaderSource);
+    constructor(gl) {
+      this.gl = gl;
+      this.shaderProgram = new ShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
       this.shaderProgram.use();
       this.positionAttributeLocation = this.shaderProgram.getAttributeLocation("a_position");
       this.resolutionUniformLocation = this.shaderProgram.getUniformLocation("u_resolution");
       this.colorUniformLocation = this.shaderProgram.getUniformLocation("u_color");
       this.translateUniformLocation = this.shaderProgram.getUniformLocation("u_translate");
       this.scaleUniformLocation = this.shaderProgram.getUniformLocation("u_scale");
-      const buffer = gl3.createBuffer();
+      const buffer = gl.createBuffer();
       if (!buffer) {
         throw new Error("Failed to create WebGL buffer");
       }
       this.positionBuffer = buffer;
-      gl3.uniform2f(this.resolutionUniformLocation, gl3.canvas.width, gl3.canvas.height);
-      gl3.uniform2f(this.translateUniformLocation, 0, 0);
-      gl3.uniform1f(this.scaleUniformLocation, 1);
+      gl.uniform2f(this.resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
+      gl.uniform2f(this.translateUniformLocation, 0, 0);
+      gl.uniform1f(this.scaleUniformLocation, 1);
     }
     shaderProgram;
     positionBuffer;
@@ -1103,23 +832,23 @@
       this.circle(x, y, radius, { fillColor: color });
     }
     drawTriangles(positions) {
-      const gl3 = this.gl;
-      gl3.bindBuffer(gl3.ARRAY_BUFFER, this.positionBuffer);
-      gl3.bufferData(gl3.ARRAY_BUFFER, positions, gl3.DYNAMIC_DRAW);
-      gl3.enableVertexAttribArray(this.positionAttributeLocation);
-      gl3.vertexAttribPointer(this.positionAttributeLocation, 2, gl3.FLOAT, false, 0, 0);
-      gl3.drawArrays(gl3.TRIANGLES, 0, positions.length / 2);
+      const gl = this.gl;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.positionAttributeLocation);
+      gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, positions.length / 2);
     }
     drawTriangleFan(positions) {
-      const gl3 = this.gl;
-      gl3.bindBuffer(gl3.ARRAY_BUFFER, this.positionBuffer);
-      gl3.bufferData(gl3.ARRAY_BUFFER, positions, gl3.DYNAMIC_DRAW);
-      gl3.enableVertexAttribArray(this.positionAttributeLocation);
-      gl3.vertexAttribPointer(this.positionAttributeLocation, 2, gl3.FLOAT, false, 0, 0);
-      gl3.drawArrays(gl3.TRIANGLE_FAN, 0, positions.length / 2);
+      const gl = this.gl;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.positionAttributeLocation);
+      gl.vertexAttribPointer(this.positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLE_FAN, 0, positions.length / 2);
     }
     drawLineInternal(x1, y1, x2, y2, width) {
-      const gl3 = this.gl;
+      const gl = this.gl;
       const dx = x2 - x1;
       const dy = y2 - y1;
       const len = Math.sqrt(dx * dx + dy * dy);
@@ -1144,6 +873,172 @@
     }
     setColor(color) {
       this.gl.uniform4f(this.colorUniformLocation, color[0], color[1], color[2], color[3]);
+    }
+  };
+
+  // src/component/CameraComponent.ts
+  var CameraComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+    get x() {
+      return this.properties.x;
+    }
+    set x(value) {
+      this.properties.x = value;
+    }
+    get y() {
+      return this.properties.y;
+    }
+    set y(value) {
+      this.properties.y = value;
+    }
+    get scale() {
+      return this.properties.scale;
+    }
+    set scale(value) {
+      this.properties.scale = value;
+    }
+  };
+
+  // src/camera.ts
+  var MIN_ZOOM = 0.1;
+  var MAX_ZOOM = 8;
+  var ZOOM_SENSITIVITY = 0.01;
+  function screenToWorld(cam, screenX, screenY) {
+    return { x: cam.x + screenX / cam.scale, y: cam.y + screenY / cam.scale };
+  }
+  function zoomCameraAt(cam, screenX, screenY, deltaY) {
+    const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, cam.scale * Math.exp(-deltaY * ZOOM_SENSITIVITY)));
+    cam.x += screenX / cam.scale - screenX / newScale;
+    cam.y += screenY / cam.scale - screenY / newScale;
+    cam.scale = newScale;
+  }
+  function panCamera(cam, deltaX, deltaY) {
+    cam.x += deltaX / cam.scale;
+    cam.y += deltaY / cam.scale;
+  }
+  function applyWheel(cam, mouse, e) {
+    if (e.ctrlKey || e.metaKey) {
+      zoomCameraAt(cam, e.offsetX, e.offsetY, e.deltaY);
+    } else {
+      panCamera(cam, e.deltaX, e.deltaY);
+    }
+    const world = screenToWorld(cam, mouse.screenX, mouse.screenY);
+    mouse.setXY(world.x, world.y);
+  }
+  function getCameraScale(world) {
+    const cameraEntity = world.getEntity("camera");
+    if (!cameraEntity || !cameraEntity.hasComponent(CameraComponent)) {
+      return 1;
+    }
+    return cameraEntity.getComponent(CameraComponent).scale;
+  }
+
+  // src/HistoryManager.ts
+  var MAX_HISTORY = 100;
+  var HistoryManager = class {
+    undoStack = [];
+    redoStack = [];
+    currentState;
+    onStateChange;
+    constructor(initialState, onStateChange) {
+      this.currentState = initialState;
+      this.onStateChange = onStateChange;
+    }
+    pushState(state) {
+      if (this.currentState === state) return;
+      this.undoStack.push(this.currentState);
+      if (this.undoStack.length > MAX_HISTORY) {
+        this.undoStack.shift();
+      }
+      this.currentState = state;
+      this.redoStack = [];
+      this.onStateChange();
+    }
+    undo() {
+      if (this.undoStack.length === 0) return null;
+      this.redoStack.push(this.currentState);
+      this.currentState = this.undoStack.pop();
+      this.onStateChange();
+      return this.currentState;
+    }
+    redo() {
+      if (this.redoStack.length === 0) return null;
+      this.undoStack.push(this.currentState);
+      this.currentState = this.redoStack.pop();
+      this.onStateChange();
+      return this.currentState;
+    }
+    canUndo() {
+      return this.undoStack.length > 0;
+    }
+    canRedo() {
+      return this.redoStack.length > 0;
+    }
+  };
+
+  // src/component/RectangleComponent.ts
+  var RectangleComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+    get x() {
+      return this.properties.x;
+    }
+    set x(value) {
+      this.properties.x = value;
+    }
+    get y() {
+      return this.properties.y;
+    }
+    set y(value) {
+      this.properties.y = value;
+    }
+    get width() {
+      return this.properties.width;
+    }
+    set width(value) {
+      this.properties.width = value;
+    }
+    get height() {
+      return this.properties.height;
+    }
+    set height(value) {
+      this.properties.height = value;
+    }
+    get fillColor() {
+      return this.properties.fillColor;
+    }
+    set fillColor(value) {
+      this.properties.fillColor = value;
+    }
+    get strokeColor() {
+      return this.properties.strokeColor;
+    }
+    set strokeColor(value) {
+      this.properties.strokeColor = value;
+    }
+    get strokeWidth() {
+      return this.properties.strokeWidth;
+    }
+    set strokeWidth(value) {
+      this.properties.strokeWidth = value;
+    }
+    // Computed properties for convenience
+    get centerX() {
+      return this.properties.x + this.properties.width / 2;
+    }
+    get centerY() {
+      return this.properties.y + this.properties.height / 2;
+    }
+    get right() {
+      return this.properties.x + this.properties.width;
+    }
+    get bottom() {
+      return this.properties.y + this.properties.height;
     }
   };
 
@@ -1317,6 +1212,10 @@
     // DragSystem skip presses claimed by a resize.
     resizeHandleId = null;
     connectionHandleId = null;
+    // The connection point the dragged line endpoint would snap to, while a
+    // connection drag is active. Written by ConnectionSystem, read by
+    // RenderSystem for the highlight ring - UI feedback only.
+    connectionSnap = null;
     hasEntity(entity) {
       return this.entities.has(entity.id);
     }
@@ -1347,6 +1246,50 @@
     constructor(properties) {
       super(properties);
       this.properties = properties;
+    }
+  };
+
+  // src/component/ToolStateComponent.ts
+  var ToolStateComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+    get currentTool() {
+      return this.properties.currentTool;
+    }
+    set currentTool(tool) {
+      this.properties.currentTool = tool;
+    }
+    get drawState() {
+      return this.properties.drawState;
+    }
+    set drawState(state) {
+      this.properties.drawState = state;
+    }
+    get startX() {
+      return this.properties.startX;
+    }
+    set startX(x) {
+      this.properties.startX = x;
+    }
+    get startY() {
+      return this.properties.startY;
+    }
+    set startY(y) {
+      this.properties.startY = y;
+    }
+    get previewEntityId() {
+      return this.properties.previewEntityId;
+    }
+    set previewEntityId(id) {
+      this.properties.previewEntityId = id;
+    }
+    reset() {
+      this.properties.drawState = "IDLE";
+      this.properties.startX = void 0;
+      this.properties.startY = void 0;
+      this.properties.previewEntityId = void 0;
     }
   };
 
@@ -1390,132 +1333,23 @@
     }
   };
 
-  // src/handles.ts
-  var HANDLE_RADIUS = 6;
-  var HANDLE_HIT_RADIUS = 8;
-  function getSelectionHandles(world2) {
-    const selectionEntity = world2.getEntity("selection");
-    if (!selectionEntity || !selectionEntity.hasComponent(SelectionRectangleComponent)) {
-      return [];
+  // src/component/LineAttachmentComponent.ts
+  var LineAttachmentComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
     }
-    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
-    if (selectionComp.entities.size === 0) {
-      return [];
+    get start() {
+      return this.properties.start;
     }
-    if (selectionComp.entities.size === 1) {
-      const [selected] = selectionComp.entities.values();
-      if (selected.hasComponent(LineComponent)) {
-        const line = selected.getComponent(LineComponent);
-        return [
-          { id: "start", x: line.x1, y: line.y1 },
-          { id: "end", x: line.x2, y: line.y2 }
-        ];
-      }
+    set start(value) {
+      this.properties.start = value;
     }
-    if (!selectionEntity.hasComponent(RectangleComponent)) {
-      return [];
+    get end() {
+      return this.properties.end;
     }
-    const bounds = selectionEntity.getComponent(RectangleComponent);
-    return [
-      { id: "nw", x: bounds.x, y: bounds.y },
-      { id: "ne", x: bounds.x + bounds.width, y: bounds.y },
-      { id: "sw", x: bounds.x, y: bounds.y + bounds.height },
-      { id: "se", x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-      { id: "n", x: bounds.x + bounds.width / 2, y: bounds.y },
-      { id: "e", x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 },
-      { id: "s", x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height },
-      { id: "w", x: bounds.x, y: bounds.y + bounds.height / 2 }
-    ];
-  }
-  function handleAtPoint(world2, x, y, scale = 1) {
-    const hitRadius = HANDLE_HIT_RADIUS / scale;
-    for (const handle of getSelectionHandles(world2)) {
-      const dx = x - handle.x;
-      const dy = y - handle.y;
-      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
-        return handle;
-      }
-    }
-    return null;
-  }
-
-  // src/system/RenderSystem.ts
-  var SELECTION_STROKE_COLOR = "rgb(66 133 244)";
-  var HANDLE_FILL_COLOR = "white";
-  var HANDLE_STROKE_COLOR = "rgb(170 170 170)";
-  var HANDLE_STROKE_WIDTH = 3;
-  var RenderingSystem = class extends System {
-    constructor(world2, query, renderer2) {
-      super(world2, query);
-      this.world = world2;
-      this.query = query;
-      this.renderer = renderer2;
-    }
-    update(now) {
-      let scale = 1;
-      const cameraEntity = this.world.getEntity("camera");
-      if (cameraEntity && cameraEntity.hasComponent(CameraComponent)) {
-        const cam = cameraEntity.getComponent(CameraComponent);
-        scale = cam.scale;
-        this.renderer.setCamera(cam.scale, cam.x, cam.y);
-      }
-      this.renderer.clear();
-      this.query.execute().forEach((entity) => {
-        if (entity.hasComponent(RectangleComponent)) {
-          const comp = entity.getComponent(RectangleComponent);
-          this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
-            strokeColor: comp.strokeColor || "black",
-            fillColor: comp.fillColor
-          });
-        } else if (entity.hasComponent(CircleComponent)) {
-          const comp = entity.getComponent(CircleComponent);
-          this.renderer.circle(comp.x, comp.y, comp.radius, {
-            strokeColor: comp.strokeColor || "black",
-            fillColor: comp.fillColor
-          });
-        } else if (entity.hasComponent(LineComponent)) {
-          const comp = entity.getComponent(LineComponent);
-          this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
-            strokeColor: comp.strokeColor || "black",
-            strokeWidth: comp.strokeWidth
-          });
-        }
-      });
-      this.renderSelectionOverlay(scale);
-    }
-    renderSelectionOverlay(scale) {
-      const handles = getSelectionHandles(this.world);
-      if (handles.length === 0) {
-        return;
-      }
-      const isBoxSelection = handles.some((handle) => handle.id === "nw");
-      if (isBoxSelection) {
-        const selectionEntity = this.world.getEntity("selection");
-        if (selectionEntity && selectionEntity.hasComponent(RectangleComponent)) {
-          const bounds = selectionEntity.getComponent(RectangleComponent);
-          this.renderer.rectangle(bounds.x, bounds.y, bounds.width, bounds.height, {
-            strokeColor: SELECTION_STROKE_COLOR,
-            strokeWidth: 1 / scale
-          });
-        }
-      }
-      handles.forEach((handle) => {
-        const isConnectionHandle = handle.id === "n" || handle.id === "e" || handle.id === "s" || handle.id === "w";
-        if (isConnectionHandle) {
-          this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
-            fillColor: SELECTION_STROKE_COLOR
-          });
-        } else {
-          this.drawHandle(handle.x, handle.y, scale);
-        }
-      });
-    }
-    drawHandle(x, y, scale) {
-      this.renderer.circle(x, y, HANDLE_RADIUS / scale, {
-        fillColor: HANDLE_FILL_COLOR,
-        strokeColor: HANDLE_STROKE_COLOR,
-        strokeWidth: HANDLE_STROKE_WIDTH / scale
-      });
+    set end(value) {
+      this.properties.end = value;
     }
   };
 
@@ -1597,12 +1431,207 @@
     }
   }
 
+  // src/handles.ts
+  var HANDLE_RADIUS = 6;
+  var HANDLE_HIT_RADIUS = 8;
+  var CONNECTION_SNAP_RADIUS = 12;
+  function getSelectionHandles(world) {
+    const selectionEntity = world.getEntity("selection");
+    if (!selectionEntity || !selectionEntity.hasComponent(SelectionRectangleComponent)) {
+      return [];
+    }
+    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+    if (selectionComp.entities.size === 0) {
+      return [];
+    }
+    if (selectionComp.entities.size === 1) {
+      const [selected] = selectionComp.entities.values();
+      if (selected.hasComponent(LineComponent)) {
+        const line = selected.getComponent(LineComponent);
+        return [
+          { id: "start", x: line.x1, y: line.y1 },
+          { id: "end", x: line.x2, y: line.y2 }
+        ];
+      }
+    }
+    if (!selectionEntity.hasComponent(RectangleComponent)) {
+      return [];
+    }
+    const bounds = selectionEntity.getComponent(RectangleComponent);
+    return [
+      { id: "nw", x: bounds.x, y: bounds.y },
+      { id: "ne", x: bounds.x + bounds.width, y: bounds.y },
+      { id: "sw", x: bounds.x, y: bounds.y + bounds.height },
+      { id: "se", x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+      { id: "n", x: bounds.x + bounds.width / 2, y: bounds.y },
+      { id: "e", x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 },
+      { id: "s", x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height },
+      { id: "w", x: bounds.x, y: bounds.y + bounds.height / 2 }
+    ];
+  }
+  function handleAtPoint(world, x, y, scale = 1) {
+    const hitRadius = HANDLE_HIT_RADIUS / scale;
+    for (const handle of getSelectionHandles(world)) {
+      const dx = x - handle.x;
+      const dy = y - handle.y;
+      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+        return handle;
+      }
+    }
+    return null;
+  }
+  function getConnectionPoints(entity) {
+    if (!entity.hasComponent(RectangleComponent) && !entity.hasComponent(CircleComponent)) {
+      return [];
+    }
+    const bounds = getEntityBounds(entity);
+    if (!bounds) {
+      return [];
+    }
+    return [
+      { id: "n", x: bounds.x + bounds.width / 2, y: bounds.y },
+      { id: "e", x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 },
+      { id: "s", x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height },
+      { id: "w", x: bounds.x, y: bounds.y + bounds.height / 2 }
+    ];
+  }
+  function connectionPointNear(candidates, x, y, scale, excludeEntityId) {
+    const snapRadius = CONNECTION_SNAP_RADIUS / scale;
+    let best = null;
+    let bestDistSq = snapRadius * snapRadius;
+    for (const entity of candidates) {
+      if (entity.id === excludeEntityId) {
+        continue;
+      }
+      for (const handle of getConnectionPoints(entity)) {
+        const dx = x - handle.x;
+        const dy = y - handle.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq <= bestDistSq) {
+          best = { entity, handle };
+          bestDistSq = distSq;
+        }
+      }
+    }
+    return best;
+  }
+
+  // src/system/RenderSystem.ts
+  var SELECTION_STROKE_COLOR = "rgb(66 133 244)";
+  var HANDLE_FILL_COLOR = "white";
+  var HANDLE_STROKE_COLOR = "rgb(170 170 170)";
+  var HANDLE_STROKE_WIDTH = 3;
+  var RenderingSystem = class extends System {
+    constructor(world, query, renderer) {
+      super(world, query);
+      this.world = world;
+      this.query = query;
+      this.renderer = renderer;
+    }
+    update(now) {
+      let scale = 1;
+      const cameraEntity = this.world.getEntity("camera");
+      if (cameraEntity && cameraEntity.hasComponent(CameraComponent)) {
+        const cam = cameraEntity.getComponent(CameraComponent);
+        scale = cam.scale;
+        this.renderer.setCamera(cam.scale, cam.x, cam.y);
+      }
+      this.renderer.clear();
+      this.query.execute().forEach((entity) => {
+        if (entity.hasComponent(RectangleComponent)) {
+          const comp = entity.getComponent(RectangleComponent);
+          this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
+            strokeColor: comp.strokeColor || "black",
+            fillColor: comp.fillColor
+          });
+        } else if (entity.hasComponent(CircleComponent)) {
+          const comp = entity.getComponent(CircleComponent);
+          this.renderer.circle(comp.x, comp.y, comp.radius, {
+            strokeColor: comp.strokeColor || "black",
+            fillColor: comp.fillColor
+          });
+        } else if (entity.hasComponent(LineComponent)) {
+          const comp = entity.getComponent(LineComponent);
+          this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
+            strokeColor: comp.strokeColor || "black",
+            strokeWidth: comp.strokeWidth
+          });
+        }
+      });
+      this.renderSelectionOverlay(scale);
+      this.renderConnectionTargets(scale);
+    }
+    /**
+     * While a connection drag is active, show every shape's connection points
+     * so the user can see what the line can attach to, and ring-highlight the
+     * point the endpoint is currently snapped to.
+     */
+    renderConnectionTargets(scale) {
+      const selectionEntity = this.world.getEntity("selection");
+      if (!selectionEntity) {
+        return;
+      }
+      const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+      if (!selectionComp.connectionHandleId) {
+        return;
+      }
+      const snap = selectionComp.connectionSnap;
+      this.query.execute().forEach((entity) => {
+        getConnectionPoints(entity).forEach((handle) => {
+          this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
+            fillColor: SELECTION_STROKE_COLOR
+          });
+          if (snap && snap.entityId === entity.id && snap.handleId === handle.id) {
+            this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
+              strokeColor: SELECTION_STROKE_COLOR,
+              strokeWidth: 2 / scale
+            });
+          }
+        });
+      });
+    }
+    renderSelectionOverlay(scale) {
+      const handles = getSelectionHandles(this.world);
+      if (handles.length === 0) {
+        return;
+      }
+      const isBoxSelection = handles.some((handle) => handle.id === "nw");
+      if (isBoxSelection) {
+        const selectionEntity = this.world.getEntity("selection");
+        if (selectionEntity && selectionEntity.hasComponent(RectangleComponent)) {
+          const bounds = selectionEntity.getComponent(RectangleComponent);
+          this.renderer.rectangle(bounds.x, bounds.y, bounds.width, bounds.height, {
+            strokeColor: SELECTION_STROKE_COLOR,
+            strokeWidth: 1 / scale
+          });
+        }
+      }
+      handles.forEach((handle) => {
+        const isConnectionHandle = handle.id === "n" || handle.id === "e" || handle.id === "s" || handle.id === "w";
+        if (isConnectionHandle) {
+          this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
+            fillColor: SELECTION_STROKE_COLOR
+          });
+        } else {
+          this.drawHandle(handle.x, handle.y, scale);
+        }
+      });
+    }
+    drawHandle(x, y, scale) {
+      this.renderer.circle(x, y, HANDLE_RADIUS / scale, {
+        fillColor: HANDLE_FILL_COLOR,
+        strokeColor: HANDLE_STROKE_COLOR,
+        strokeWidth: HANDLE_STROKE_WIDTH / scale
+      });
+    }
+  };
+
   // src/system/SelectionSystem.ts
   var SELECTION_PADDING = 0;
   var SelectionSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     update(now) {
@@ -1641,15 +1670,15 @@
 
   // src/system/MousePressSystem.ts
   var MousePressSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     lastPressCount = 0;
     update(now) {
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const isClick = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
       const toolEntity = this.world.getEntity("tool");
@@ -1690,9 +1719,9 @@
 
   // src/system/MouseOverSystem.ts
   var MouseOverSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     update(now) {
@@ -1700,8 +1729,8 @@
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         return;
       }
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const scale = getCameraScale(this.world);
       this.query.execute().forEach((entity) => {
         if (hitTestEntity(entity, mouseComp.x, mouseComp.y, scale)) {
@@ -1713,14 +1742,14 @@
 
   // src/system/MouseOutSystem.ts
   var MouseOutSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     update(now) {
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const toolEntity = this.world.getEntity("tool");
       const isCursorMode = !toolEntity || toolEntity.getComponent(ToolStateComponent).currentTool === "cursor";
       const scale = getCameraScale(this.world);
@@ -1734,17 +1763,17 @@
 
   // src/system/DragSystem.ts
   var DragSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     lastPressCount = 0;
     lastX = null;
     lastY = null;
     update(now) {
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       if (mouseComp.pressCount > this.lastPressCount) {
         this.lastX = mouseComp.pressX;
         this.lastY = mouseComp.pressY;
@@ -1754,7 +1783,7 @@
       if (toolEntity && toolEntity.getComponent(ToolStateComponent).currentTool !== "cursor") {
         return;
       }
-      if (!cursor2.hasComponent(IsMousePressed)) {
+      if (!cursor.hasComponent(IsMousePressed)) {
         this.lastX = null;
         this.lastY = null;
         return;
@@ -1780,6 +1809,9 @@
         return;
       }
       selectionComp.entities.forEach((entity) => {
+        if (entity.hasComponent(LineComponent) && entity.hasComponent(LineAttachmentComponent)) {
+          entity.removeComponent(LineAttachmentComponent);
+        }
         moveEntityBy(entity, deltaX, deltaY);
       });
       selectionComp.isDirty = true;
@@ -1790,9 +1822,9 @@
   var MIN_RECTANGLE_SIZE = 5;
   var MIN_CIRCLE_RADIUS = 3;
   var ResizeSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     lastPressCount = 0;
@@ -1806,8 +1838,8 @@
     grabOffsetX = 0;
     grabOffsetY = 0;
     update(now) {
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const pressEdge = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
       const selectionEntity = this.world.getEntity("selection");
@@ -1831,6 +1863,14 @@
           this.grabOffsetX = handle.x - mouseComp.pressX;
           this.grabOffsetY = handle.y - mouseComp.pressY;
           selectionComp.resizeHandleId = handle.id;
+          if ((handle.id === "start" || handle.id === "end") && target2.hasComponent(LineAttachmentComponent)) {
+            const attachment = target2.getComponent(LineAttachmentComponent);
+            if (handle.id === "start") {
+              attachment.start = null;
+            } else {
+              attachment.end = null;
+            }
+          }
           if (selectionEntity.hasComponent(RectangleComponent)) {
             const bounds = selectionEntity.getComponent(RectangleComponent);
             this.anchorX = handle.id === "nw" || handle.id === "sw" ? bounds.x + bounds.width : bounds.x;
@@ -1838,7 +1878,7 @@
           }
         }
       }
-      if (!cursor2.hasComponent(IsMousePressed)) {
+      if (!cursor.hasComponent(IsMousePressed)) {
         this.stop(selectionComp);
         return;
       }
@@ -1892,32 +1932,34 @@
   };
 
   // src/autoSelect.ts
-  function autoSelectFreshShape(world2, entity) {
-    const toolEntity = world2.getEntity("tool");
-    const selectionEntity = world2.getEntity("selection");
+  function autoSelectFreshShape(world, entity) {
+    const toolEntity = world.getEntity("tool");
+    const selectionEntity = world.getEntity("selection");
     if (!toolEntity || !selectionEntity) {
       return;
     }
     toolEntity.getComponent(ToolStateComponent).currentTool = "cursor";
-    setActiveToolButton("cursor");
     const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
     selectionComp.clear();
     selectionComp.addEntity(entity);
   }
 
   // src/system/ConnectionSystem.ts
+  var MIN_CONNECTION_LINE_LENGTH = 5;
   var ConnectionSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query, connectableQuery) {
+      super(world, query);
+      this.world = world;
       this.query = query;
+      this.connectableQuery = connectableQuery;
     }
     lastPressCount = 0;
     previewEntityId = null;
+    sourceEntityId = null;
     entityCounter = 0;
     update(now) {
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const pressEdge = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
       const selectionEntity = this.world.getEntity("selection");
@@ -1928,12 +1970,15 @@
         this.stop(selectionComp);
         return;
       }
+      const scale = getCameraScale(this.world);
       if (pressEdge) {
         this.stop(selectionComp);
-        const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY);
+        const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY, scale);
         const isConnectionHandle = handle && (handle.id === "n" || handle.id === "e" || handle.id === "s" || handle.id === "w");
         if (isConnectionHandle && selectionComp.entities.size === 1) {
           selectionComp.connectionHandleId = handle.id;
+          const [source] = selectionComp.entities.values();
+          this.sourceEntityId = source.id;
           const entityId = `connection-line-${Date.now()}-${this.entityCounter++}`;
           const previewEntity2 = this.world.createEntity(entityId);
           previewEntity2.addComponent(LineComponent, {
@@ -1943,18 +1988,35 @@
             y2: mouseComp.y,
             strokeColor: "black"
           });
+          previewEntity2.addComponent(LineAttachmentComponent, {
+            start: { entityId: source.id, handleId: handle.id },
+            end: null
+          });
           previewEntity2.addComponent(IsRendered);
           this.previewEntityId = entityId;
         }
       }
-      if (!cursor2.hasComponent(IsMousePressed)) {
+      if (!cursor.hasComponent(IsMousePressed)) {
         if (this.previewEntityId) {
           const previewEntity2 = this.world.getEntity(this.previewEntityId);
           if (previewEntity2) {
             const lineComp = previewEntity2.getComponent(LineComponent);
-            lineComp.x2 = mouseComp.x;
-            lineComp.y2 = mouseComp.y;
-            autoSelectFreshShape(this.world, previewEntity2);
+            const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+            if (snap) {
+              lineComp.x2 = snap.handle.x;
+              lineComp.y2 = snap.handle.y;
+              const attachment = previewEntity2.getComponent(LineAttachmentComponent);
+              attachment.end = { entityId: snap.entity.id, handleId: snap.handle.id };
+              autoSelectFreshShape(this.world, previewEntity2);
+            } else {
+              lineComp.x2 = mouseComp.x;
+              lineComp.y2 = mouseComp.y;
+              if (lineComp.length < MIN_CONNECTION_LINE_LENGTH) {
+                this.world.removeEntity(this.previewEntityId);
+              } else {
+                autoSelectFreshShape(this.world, previewEntity2);
+              }
+            }
           }
           this.previewEntityId = null;
         }
@@ -1967,12 +2029,31 @@
       const previewEntity = this.world.getEntity(this.previewEntityId);
       if (previewEntity) {
         const lineComp = previewEntity.getComponent(LineComponent);
-        lineComp.x2 = mouseComp.x;
-        lineComp.y2 = mouseComp.y;
+        const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+        if (snap) {
+          lineComp.x2 = snap.handle.x;
+          lineComp.y2 = snap.handle.y;
+          selectionComp.connectionSnap = { entityId: snap.entity.id, handleId: snap.handle.id };
+        } else {
+          lineComp.x2 = mouseComp.x;
+          lineComp.y2 = mouseComp.y;
+          selectionComp.connectionSnap = null;
+        }
       }
+    }
+    findSnap(x, y, scale) {
+      return connectionPointNear(
+        this.connectableQuery.execute().values(),
+        x,
+        y,
+        scale,
+        this.sourceEntityId
+      );
     }
     stop(selectionComp) {
       selectionComp.connectionHandleId = null;
+      selectionComp.connectionSnap = null;
+      this.sourceEntityId = null;
       if (this.previewEntityId) {
         this.world.removeEntity(this.previewEntityId);
         this.previewEntityId = null;
@@ -1982,19 +2063,19 @@
 
   // src/system/ToolStateSystem.ts
   var ToolStateSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     update(now) {
       const toolEntity = this.world.getEntity("tool");
       if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       if (toolState.currentTool === "cursor") {
-        if (cursor2.hasComponent(IsMousePressed)) {
+        if (cursor.hasComponent(IsMousePressed)) {
         }
       }
     }
@@ -2003,9 +2084,9 @@
   // src/system/RectangleDrawSystem.ts
   var MIN_RECTANGLE_SIZE2 = 5;
   var RectangleDrawSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     entityCounter = 0;
@@ -2015,9 +2096,9 @@
       const toolEntity = this.world.getEntity("tool");
       if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
-      const isMousePressed = cursor2.hasComponent(IsMousePressed);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
+      const isMousePressed = cursor.hasComponent(IsMousePressed);
       const pressEdge = mouseComp.pressCount > this.lastPressCount;
       const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
       this.lastPressCount = mouseComp.pressCount;
@@ -2078,9 +2159,9 @@
   // src/system/CircleDrawSystem.ts
   var MIN_CIRCLE_RADIUS2 = 3;
   var CircleDrawSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     entityCounter = 0;
@@ -2090,9 +2171,9 @@
       const toolEntity = this.world.getEntity("tool");
       if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
-      const isMousePressed = cursor2.hasComponent(IsMousePressed);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
+      const isMousePressed = cursor.hasComponent(IsMousePressed);
       const pressEdge = mouseComp.pressCount > this.lastPressCount;
       const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
       this.lastPressCount = mouseComp.pressCount;
@@ -2154,9 +2235,9 @@
   // src/system/LineDrawSystem.ts
   var MIN_LINE_LENGTH = 5;
   var LineDrawSystem = class extends System {
-    constructor(world2, query) {
-      super(world2, query);
-      this.world = world2;
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
       this.query = query;
     }
     entityCounter = 0;
@@ -2165,8 +2246,8 @@
       const toolEntity = this.world.getEntity("tool");
       if (!toolEntity) return;
       const toolState = toolEntity.getComponent(ToolStateComponent);
-      const cursor2 = this.world.getEntity("cursor");
-      const mouseComp = cursor2.getComponent(MouseComponent);
+      const cursor = this.world.getEntity("cursor");
+      const mouseComp = cursor.getComponent(MouseComponent);
       const isClick = mouseComp.pressCount > this.lastPressCount;
       this.lastPressCount = mouseComp.pressCount;
       if (toolState.currentTool !== "line") return;
@@ -2218,93 +2299,528 @@
     }
   };
 
-  // src/index.ts
-  var $wrapper2 = createWrapper("canvas-wrapper");
-  var { $canvas: $canvas2, gl: gl2 } = createCanvas("canvas");
-  var renderer = new WebGLRenderer(gl2);
-  renderer.setResolution(window.innerWidth, window.innerHeight);
-  window.addEventListener("resize", () => {
-    const { width, height } = resizeCanvasToViewport();
-    renderer.setResolution(width, height);
-  });
-  var world = new World();
-  world.registerComponents([
-    // Existing
-    IsRendered,
-    IsMouseOver,
-    IsMousePressed,
-    MouseComponent,
-    RectangleComponent,
-    SelectionRectangleComponent,
-    // New
-    CircleComponent,
-    LineComponent,
-    IsSelected,
-    ToolStateComponent,
-    DrawnOnLayer,
-    Layer,
-    CameraComponent
-  ]);
-  var cursor = world.createEntity("cursor");
-  cursor.addComponent(MouseComponent, { x: 0, y: 0 });
-  var selection = world.createEntity("selection");
-  selection.addComponent(SelectionRectangleComponent);
-  var tool = world.createEntity("tool");
-  tool.addComponent(ToolStateComponent, { currentTool: "cursor", drawState: "IDLE" });
-  var defaultLayer = world.createEntity("default-layer");
-  defaultLayer.addComponent(Layer, { id: "default-layer", zIndex: 0, visible: true });
-  var camera = world.createEntity("camera");
-  camera.addComponent(CameraComponent, { x: 0, y: 0, scale: 1 });
-  var SHAPE_COMPONENTS = [RectangleComponent, CircleComponent, LineComponent];
-  var allRenderableQuery = world.createQuery("renderables", { all: [IsRendered] });
-  var selectableShapesQuery = world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
-  var shapesForMouseOverQuery = world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent] });
-  var shapesForMouseOutQuery = world.createQuery("shapesMouseOut", { all: [IsMouseOver], any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
-  var selectionQuery = world.createQuery("selection", { all: [SelectionRectangleComponent] });
-  var toolQuery = world.createQuery("tool", { all: [ToolStateComponent] });
-  world.createSystem(ToolStateSystem, toolQuery);
-  world.createSystem(RectangleDrawSystem, toolQuery);
-  world.createSystem(CircleDrawSystem, toolQuery);
-  world.createSystem(LineDrawSystem, toolQuery);
-  world.createSystem(ResizeSystem, selectionQuery);
-  world.createSystem(ConnectionSystem, selectionQuery);
-  world.createSystem(MousePressSystem, selectableShapesQuery);
-  world.createSystem(DragSystem, selectionQuery);
-  world.createSystem(MouseOverSystem, shapesForMouseOverQuery);
-  world.createSystem(MouseOutSystem, shapesForMouseOutQuery);
-  world.createSystem(SelectionSystem, selectionQuery);
-  world.createSystem(RenderingSystem, allRenderableQuery, renderer);
-  mouseMove((e) => {
-    const cam = camera.getComponent(CameraComponent);
-    const mouse = cursor.getComponent(MouseComponent);
-    mouse.screenX = e.offsetX;
-    mouse.screenY = e.offsetY;
-    const w = screenToWorld(cam, e.offsetX, e.offsetY);
-    mouse.setXY(w.x, w.y);
-  });
-  mousePress((e) => {
-    const cam = camera.getComponent(CameraComponent);
-    const mouse = cursor.getComponent(MouseComponent);
-    mouse.screenX = e.offsetX;
-    mouse.screenY = e.offsetY;
-    const w = screenToWorld(cam, e.offsetX, e.offsetY);
-    mouse.setXY(w.x, w.y);
-    mouse.press(w.x, w.y);
-    if (!cursor.hasComponent(IsMousePressed)) {
-      cursor.addComponent(IsMousePressed);
+  // src/system/LineAttachmentSystem.ts
+  var LineAttachmentSystem = class extends System {
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
+      this.query = query;
     }
-  });
-  mouseRelease(() => {
-    cursor.getComponent(MouseComponent).release();
-    cursor.removeComponent(IsMousePressed);
-  });
-  wheel((e) => {
-    e.preventDefault();
-    applyWheel(camera.getComponent(CameraComponent), cursor.getComponent(MouseComponent), e);
-  });
-  initFloatingMenu(world);
-  initKeyboardEvents(world);
-  world.start();
-  window["world"] = world;
+    update(now) {
+      const selectionEntity = this.world.getEntity("selection");
+      const selectionComp = selectionEntity?.getComponent(SelectionRectangleComponent);
+      for (const entity of [...this.query.execute().values()]) {
+        const attachment = entity.getComponent(LineAttachmentComponent);
+        const line = entity.getComponent(LineComponent);
+        let moved = this.pinSide(attachment, "start", line);
+        moved = this.pinSide(attachment, "end", line) || moved;
+        if (attachment.start === null && attachment.end === null) {
+          entity.removeComponent(LineAttachmentComponent);
+        }
+        if (moved && selectionComp?.hasEntity(entity)) {
+          selectionComp.isDirty = true;
+        }
+      }
+    }
+    // Re-pins one endpoint to its shape's connection point. Returns whether
+    // the endpoint actually moved; clears the side if the shape is gone.
+    pinSide(attachment, side, line) {
+      const ref = attachment[side];
+      if (!ref) {
+        return false;
+      }
+      const target = this.world.getEntity(ref.entityId);
+      const point = target && getConnectionPoints(target).find((handle) => handle.id === ref.handleId);
+      if (!point) {
+        attachment[side] = null;
+        return false;
+      }
+      if (side === "start") {
+        if (line.x1 === point.x && line.y1 === point.y) {
+          return false;
+        }
+        line.x1 = point.x;
+        line.y1 = point.y;
+      } else {
+        if (line.x2 === point.x && line.y2 === point.y) {
+          return false;
+        }
+        line.x2 = point.x;
+        line.y2 = point.y;
+      }
+      return true;
+    }
+  };
+
+  // src/system/HistorySystem.ts
+  var HistorySystem = class extends System {
+    constructor(world, query, onAction) {
+      super(world, query);
+      this.world = world;
+      this.query = query;
+      this.onAction = onAction;
+    }
+    lastReleaseCount = 0;
+    update(now) {
+      const cursor = this.world.getEntity("cursor");
+      if (!cursor) return;
+      const mouseComp = cursor.getComponent(MouseComponent);
+      const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
+      this.lastReleaseCount = mouseComp.releaseCount;
+      if (!releaseEdge) return;
+      const toolEntity = this.world.getEntity("tool");
+      if (toolEntity && toolEntity.getComponent(ToolStateComponent).drawState !== "IDLE") {
+        return;
+      }
+      this.onAction();
+    }
+  };
+
+  // src/Whiteboard.ts
+  var Whiteboard = class _Whiteboard {
+    world;
+    renderer;
+    container;
+    $wrapper;
+    $canvas;
+    gl;
+    isActive = false;
+    resizeObserver;
+    // Assigned in bindEvents(), which the constructor always calls.
+    boundKeydown;
+    boundMouseup;
+    // Shapes on the board (excludes the selection entity's bounding box);
+    // created once in setupECS - createQuery throws on duplicate ids.
+    shapesQuery;
+    history;
+    $undoBtn;
+    $redoBtn;
+    loadedShapeCounter = 0;
+    constructor(container) {
+      this.container = container;
+      this.world = new World();
+      this.$wrapper = document.createElement("div");
+      this.$wrapper.style.position = "relative";
+      this.$wrapper.style.width = "100%";
+      this.$wrapper.style.height = "100%";
+      this.$wrapper.style.overflow = "hidden";
+      this.container.appendChild(this.$wrapper);
+      const menu = document.createElement("div");
+      menu.className = "floating-menu";
+      menu.style.position = "absolute";
+      menu.style.left = "20px";
+      menu.style.top = "50%";
+      menu.style.transform = "translateY(-50%)";
+      menu.style.background = "white";
+      menu.style.borderRadius = "8px";
+      menu.style.boxShadow = "2px 4px 8px rgba(0, 0, 0, 0.15)";
+      menu.style.padding = "8px";
+      menu.style.display = "flex";
+      menu.style.flexDirection = "column";
+      menu.style.gap = "4px";
+      menu.style.zIndex = "1000";
+      menu.innerHTML = `
+        <button data-tool="cursor" class="active" title="Select (V)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+        </button>
+        <button data-tool="rectangle" title="Rectangle (R)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+        </button>
+        <button data-tool="circle" title="Circle (C)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/></svg>
+        </button>
+        <button data-tool="line" title="Line (L)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+        </button>
+        <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
+        <button data-action="undo" title="Undo (Cmd+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+        <button data-action="redo" title="Redo (Cmd+Shift+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+        </button>
+    `;
+      this.$undoBtn = menu.querySelector('[data-action="undo"]');
+      this.$redoBtn = menu.querySelector('[data-action="redo"]');
+      this.$wrapper.appendChild(menu);
+      this.$canvas = document.createElement("canvas");
+      this.$canvas.style.display = "block";
+      this.$canvas.style.width = "100%";
+      this.$canvas.style.height = "100%";
+      this.$canvas.style.background = "white";
+      this.$canvas.style.cursor = "default";
+      this.$canvas.style.imageRendering = "pixelated";
+      this.$wrapper.appendChild(this.$canvas);
+      const glContext = this.$canvas.getContext("webgl");
+      if (!glContext) throw new Error("WebGL is not supported in this browser.");
+      this.gl = glContext;
+      this.renderer = new WebGLRenderer(this.gl);
+      this.gl.clearColor(1, 1, 1, 1);
+      this.setupECS();
+      this.history = new HistoryManager(this.saveShapes(), () => this.updateHistoryButtons());
+      this.updateHistoryButtons();
+      this.bindEvents(menu);
+      this.resize();
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+      this.resizeObserver.observe(this.$wrapper);
+      this.world.start();
+    }
+    static componentsRegistered = false;
+    setupECS() {
+      if (!_Whiteboard.componentsRegistered) {
+        this.world.registerComponents([
+          IsRendered,
+          IsMouseOver,
+          IsMousePressed,
+          MouseComponent,
+          RectangleComponent,
+          SelectionRectangleComponent,
+          CircleComponent,
+          LineComponent,
+          IsSelected,
+          ToolStateComponent,
+          DrawnOnLayer,
+          Layer,
+          CameraComponent,
+          LineAttachmentComponent
+        ]);
+        _Whiteboard.componentsRegistered = true;
+      }
+      const cursor = this.world.createEntity("cursor");
+      cursor.addComponent(MouseComponent, { x: 0, y: 0 });
+      const selection = this.world.createEntity("selection");
+      selection.addComponent(SelectionRectangleComponent);
+      const tool = this.world.createEntity("tool");
+      tool.addComponent(ToolStateComponent, { currentTool: "cursor", drawState: "IDLE" });
+      const defaultLayer = this.world.createEntity("default-layer");
+      defaultLayer.addComponent(Layer, { id: "default-layer", zIndex: 0, visible: true });
+      const camera = this.world.createEntity("camera");
+      camera.addComponent(CameraComponent, { x: 0, y: 0, scale: 1 });
+      const SHAPE_COMPONENTS = [RectangleComponent, CircleComponent, LineComponent];
+      const allRenderableQuery = this.world.createQuery("renderables", { all: [IsRendered] });
+      const selectableShapesQuery = this.world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
+      const shapesForMouseOverQuery = this.world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent] });
+      const shapesForMouseOutQuery = this.world.createQuery("shapesMouseOut", { all: [IsMouseOver], any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
+      const selectionQuery = this.world.createQuery("selection", { all: [SelectionRectangleComponent] });
+      const toolQuery = this.world.createQuery("tool", { all: [ToolStateComponent] });
+      this.shapesQuery = this.world.createQuery("shapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
+      const connectableShapesQuery = this.world.createQuery("connectableShapes", { any: [RectangleComponent, CircleComponent], none: [SelectionRectangleComponent] });
+      const attachedLinesQuery = this.world.createQuery("attachedLines", { all: [LineComponent, LineAttachmentComponent] });
+      const historyQuery = this.world.createQuery("history", { all: [MouseComponent] });
+      this.world.createSystem(ToolStateSystem, toolQuery);
+      this.world.createSystem(RectangleDrawSystem, toolQuery);
+      this.world.createSystem(CircleDrawSystem, toolQuery);
+      this.world.createSystem(LineDrawSystem, toolQuery);
+      this.world.createSystem(ResizeSystem, selectionQuery);
+      this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
+      this.world.createSystem(MousePressSystem, selectableShapesQuery);
+      this.world.createSystem(DragSystem, selectionQuery);
+      this.world.createSystem(LineAttachmentSystem, attachedLinesQuery);
+      this.world.createSystem(MouseOverSystem, shapesForMouseOverQuery);
+      this.world.createSystem(MouseOutSystem, shapesForMouseOutQuery);
+      this.world.createSystem(SelectionSystem, selectionQuery);
+      this.world.createSystem(RenderingSystem, allRenderableQuery, this.renderer);
+      this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
+    }
+    resize() {
+      const width = this.$wrapper.clientWidth || window.innerWidth;
+      const height = this.$wrapper.clientHeight || window.innerHeight;
+      const pixelRatio = window.devicePixelRatio || 1;
+      this.$canvas.width = width * pixelRatio;
+      this.$canvas.height = height * pixelRatio;
+      this.gl.viewport(0, 0, this.$canvas.width, this.$canvas.height);
+      this.renderer.setResolution(width, height);
+    }
+    get camera() {
+      return this.world.getEntity("camera").getComponent(CameraComponent);
+    }
+    get cursor() {
+      return this.world.getEntity("cursor");
+    }
+    bindEvents(menu) {
+      this.$canvas.addEventListener("mouseenter", () => {
+        this.isActive = true;
+      });
+      this.$canvas.addEventListener("mouseleave", () => {
+        this.isActive = false;
+      });
+      this.$canvas.addEventListener("mousemove", (e) => {
+        const mouse = this.cursor.getComponent(MouseComponent);
+        mouse.screenX = e.offsetX;
+        mouse.screenY = e.offsetY;
+        const w = screenToWorld(this.camera, e.offsetX, e.offsetY);
+        mouse.setXY(w.x, w.y);
+      });
+      this.$canvas.addEventListener("mousedown", (e) => {
+        const mouse = this.cursor.getComponent(MouseComponent);
+        mouse.screenX = e.offsetX;
+        mouse.screenY = e.offsetY;
+        const w = screenToWorld(this.camera, e.offsetX, e.offsetY);
+        mouse.setXY(w.x, w.y);
+        mouse.press(w.x, w.y);
+        if (!this.cursor.hasComponent(IsMousePressed)) {
+          this.cursor.addComponent(IsMousePressed);
+        }
+      });
+      this.boundMouseup = (e) => {
+        this.cursor.getComponent(MouseComponent).release();
+        this.cursor.removeComponent(IsMousePressed);
+      };
+      window.addEventListener("mouseup", this.boundMouseup, { capture: true });
+      this.$canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        applyWheel(this.camera, this.cursor.getComponent(MouseComponent), e);
+      }, { passive: false });
+      menu.addEventListener("click", (e) => {
+        const actionButton = e.target.closest("[data-action]");
+        if (actionButton) {
+          if (actionButton.dataset.action === "undo") this.undo();
+          else if (actionButton.dataset.action === "redo") this.redo();
+          return;
+        }
+        const button = e.target.closest("[data-tool]");
+        if (!button) return;
+        const toolName = button.dataset.tool;
+        if (!toolName) return;
+        menu.querySelectorAll("[data-tool]").forEach((btn) => btn.style.background = "transparent");
+        button.style.background = "#e0e0e0";
+        const toolEntity = this.world.getEntity("tool");
+        if (toolEntity) {
+          const toolState = toolEntity.getComponent(ToolStateComponent);
+          if (toolState.previewEntityId) {
+            this.world.removeEntity(toolState.previewEntityId);
+          }
+          toolState.currentTool = toolName;
+          toolState.reset();
+        }
+      });
+      this.boundKeydown = (e) => {
+        if (!this.isActive) return;
+        if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
+          e.preventDefault();
+          if (e.key === "y" || e.shiftKey) {
+            this.redo();
+          } else {
+            this.undo();
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          const toolEntity = this.world.getEntity("tool");
+          if (toolEntity) {
+            const toolState = toolEntity.getComponent(ToolStateComponent);
+            if (toolState.drawState === "FIRST_POINT_SET") {
+              if (toolState.previewEntityId) {
+                this.world.removeEntity(toolState.previewEntityId);
+              }
+              toolState.reset();
+            }
+          }
+        }
+      };
+      document.addEventListener("keydown", this.boundKeydown);
+    }
+    destroy() {
+      this.resizeObserver.disconnect();
+      window.removeEventListener("mouseup", this.boundMouseup, { capture: true });
+      document.removeEventListener("keydown", this.boundKeydown);
+      this.world.stop();
+      this.container.removeChild(this.$wrapper);
+    }
+    /**
+     * Serializes all shapes (no camera) to a deterministic JSON string:
+     * entity ids and per-field colors are preserved so a load→save roundtrip
+     * is byte-identical, and line attachments survive. The in-progress draw
+     * preview (if any) is excluded. This string is the undo/redo snapshot unit.
+     */
+    saveShapes() {
+      const toolEntity = this.world.getEntity("tool");
+      const previewId = toolEntity?.getComponent(ToolStateComponent).previewEntityId;
+      const shapes = [...this.shapesQuery.execute().values()].filter((entity) => entity.id !== previewId).map((entity) => {
+        const data = { id: entity.id, type: "" };
+        if (entity.hasComponent(RectangleComponent)) {
+          const comp = entity.getComponent(RectangleComponent);
+          data.type = "rectangle";
+          data.x = comp.x;
+          data.y = comp.y;
+          data.width = comp.width;
+          data.height = comp.height;
+          data.fillColor = comp.fillColor;
+          data.strokeColor = comp.strokeColor;
+          data.strokeWidth = comp.strokeWidth;
+        } else if (entity.hasComponent(CircleComponent)) {
+          const comp = entity.getComponent(CircleComponent);
+          data.type = "circle";
+          data.x = comp.x;
+          data.y = comp.y;
+          data.radius = comp.radius;
+          data.fillColor = comp.fillColor;
+          data.strokeColor = comp.strokeColor;
+          data.strokeWidth = comp.strokeWidth;
+        } else if (entity.hasComponent(LineComponent)) {
+          const comp = entity.getComponent(LineComponent);
+          data.type = "line";
+          data.x1 = comp.x1;
+          data.y1 = comp.y1;
+          data.x2 = comp.x2;
+          data.y2 = comp.y2;
+          data.strokeColor = comp.strokeColor;
+          data.strokeWidth = comp.strokeWidth;
+          if (entity.hasComponent(LineAttachmentComponent)) {
+            const att = entity.getComponent(LineAttachmentComponent);
+            data.attachment = { start: att.start, end: att.end };
+          }
+        }
+        return data;
+      });
+      return JSON.stringify(shapes);
+    }
+    /**
+     * Applies a saveShapes() snapshot as a differential update: existing
+     * entities are patched in place (ids preserved, so attachment pins stay
+     * valid), missing ones are recreated with their original id, and shapes
+     * absent from the snapshot are removed. The selection is cleared first so
+     * it never holds references to removed entities.
+     */
+    loadShapes(json) {
+      const shapes = JSON.parse(json);
+      const selectionEntity = this.world.getEntity("selection");
+      if (selectionEntity) {
+        selectionEntity.getComponent(SelectionRectangleComponent).clear();
+      }
+      const stale = /* @__PURE__ */ new Set([...this.shapesQuery.execute().keys()]);
+      shapes.forEach((shape) => {
+        const id = shape.id ?? `loaded-shape-${this.loadedShapeCounter++}`;
+        const strokeColor = shape.strokeColor ?? shape.color;
+        stale.delete(id);
+        let entity = this.world.getEntity(id);
+        if (!entity) {
+          entity = this.world.createEntity(id);
+          entity.addComponent(IsRendered);
+          if (shape.type === "rectangle") {
+            entity.addComponent(RectangleComponent, {
+              x: shape.x,
+              y: shape.y,
+              width: shape.width,
+              height: shape.height,
+              fillColor: shape.fillColor,
+              strokeColor,
+              strokeWidth: shape.strokeWidth
+            });
+          } else if (shape.type === "circle") {
+            entity.addComponent(CircleComponent, {
+              x: shape.x,
+              y: shape.y,
+              radius: shape.radius,
+              fillColor: shape.fillColor,
+              strokeColor,
+              strokeWidth: shape.strokeWidth
+            });
+          } else if (shape.type === "line") {
+            entity.addComponent(LineComponent, {
+              x1: shape.x1,
+              y1: shape.y1,
+              x2: shape.x2,
+              y2: shape.y2,
+              strokeColor,
+              strokeWidth: shape.strokeWidth
+            });
+          }
+        } else {
+          if (shape.type === "rectangle" && entity.hasComponent(RectangleComponent)) {
+            const comp = entity.getComponent(RectangleComponent);
+            comp.x = shape.x;
+            comp.y = shape.y;
+            comp.width = shape.width;
+            comp.height = shape.height;
+            comp.fillColor = shape.fillColor;
+            comp.strokeColor = strokeColor;
+            comp.strokeWidth = shape.strokeWidth;
+          } else if (shape.type === "circle" && entity.hasComponent(CircleComponent)) {
+            const comp = entity.getComponent(CircleComponent);
+            comp.x = shape.x;
+            comp.y = shape.y;
+            comp.radius = shape.radius;
+            comp.fillColor = shape.fillColor;
+            comp.strokeColor = strokeColor;
+            comp.strokeWidth = shape.strokeWidth;
+          } else if (shape.type === "line" && entity.hasComponent(LineComponent)) {
+            const comp = entity.getComponent(LineComponent);
+            comp.x1 = shape.x1;
+            comp.y1 = shape.y1;
+            comp.x2 = shape.x2;
+            comp.y2 = shape.y2;
+            comp.strokeColor = strokeColor;
+            comp.strokeWidth = shape.strokeWidth;
+          }
+        }
+        if (shape.type === "line") {
+          const start = shape.attachment?.start ?? null;
+          const end = shape.attachment?.end ?? null;
+          if (start || end) {
+            if (entity.hasComponent(LineAttachmentComponent)) {
+              const att = entity.getComponent(LineAttachmentComponent);
+              att.start = start;
+              att.end = end;
+            } else {
+              entity.addComponent(LineAttachmentComponent, { start, end });
+            }
+          } else if (entity.hasComponent(LineAttachmentComponent)) {
+            entity.removeComponent(LineAttachmentComponent);
+          }
+        }
+      });
+      stale.forEach((id) => this.world.removeEntity(id));
+    }
+    recordHistory() {
+      this.history.pushState(this.saveShapes());
+    }
+    undo() {
+      if (!this.canApplyHistory()) return;
+      const state = this.history.undo();
+      if (state !== null) this.loadShapes(state);
+    }
+    redo() {
+      if (!this.canApplyHistory()) return;
+      const state = this.history.redo();
+      if (state !== null) this.loadShapes(state);
+    }
+    // Applying a snapshot mid-drag/mid-draw would fight the active gesture.
+    canApplyHistory() {
+      if (this.cursor.hasComponent(IsMousePressed)) return false;
+      const toolEntity = this.world.getEntity("tool");
+      return !toolEntity || toolEntity.getComponent(ToolStateComponent).drawState === "IDLE";
+    }
+    updateHistoryButtons() {
+      this.$undoBtn.disabled = !this.history.canUndo();
+      this.$undoBtn.style.opacity = this.history.canUndo() ? "1" : "0.3";
+      this.$redoBtn.disabled = !this.history.canRedo();
+      this.$redoBtn.style.opacity = this.history.canRedo() ? "1" : "0.3";
+    }
+    save() {
+      const cam = this.camera;
+      return JSON.stringify({
+        version: "1.1",
+        camera: { x: cam.x, y: cam.y, scale: cam.scale },
+        shapes: JSON.parse(this.saveShapes())
+      });
+    }
+    load(json) {
+      const data = JSON.parse(json);
+      if (data.camera) {
+        const cam = this.camera;
+        cam.x = data.camera.x;
+        cam.y = data.camera.y;
+        cam.scale = data.camera.scale;
+      }
+      this.loadShapes(JSON.stringify(data.shapes ?? []));
+      this.recordHistory();
+    }
+  };
+
+  // src/index.ts
+  if (typeof window !== "undefined") {
+    window.Whiteboard = Whiteboard;
+  }
 })();
 //# sourceMappingURL=demo.js.map

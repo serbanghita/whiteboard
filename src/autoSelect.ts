@@ -1,7 +1,6 @@
 import { Entity, World } from "@serbanghita-gamedev/ecs";
 import SelectionRectangleComponent from "./component/SelectionRectangleComponent";
 import ToolStateComponent from "./component/ToolStateComponent";
-import { setActiveToolButton } from "./render";
 
 /**
  * Called by the draw systems right after a shape is successfully finalized.
@@ -16,7 +15,6 @@ export function autoSelectFreshShape(world: World, entity: Entity): void {
   }
 
   toolEntity.getComponent(ToolStateComponent).currentTool = 'cursor';
-  setActiveToolButton('cursor');
 
   const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
   selectionComp.clear();

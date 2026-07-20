@@ -3,6 +3,8 @@ import MouseComponent from "../component/MouseComponent";
 import IsMousePressed from "../component/IsMousePressed";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import ToolStateComponent from "../component/ToolStateComponent";
+import LineComponent from "../component/LineComponent";
+import LineAttachmentComponent from "../component/LineAttachmentComponent";
 import { moveEntityBy } from "../shape";
 
 /**
@@ -88,6 +90,12 @@ export default class DragSystem extends System {
 
     // Move all selected entities by the delta
     selectionComp.entities.forEach((entity) => {
+      // Dragging an attached line by its body is an explicit intent to move
+      // it away from its shapes - detach both ends, otherwise
+      // LineAttachmentSystem would pin the endpoints right back.
+      if (entity.hasComponent(LineComponent) && entity.hasComponent(LineAttachmentComponent)) {
+        entity.removeComponent(LineAttachmentComponent);
+      }
       moveEntityBy(entity, deltaX, deltaY);
     });
 

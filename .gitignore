@@ -3,3 +3,4 @@ src/*.js.map
 .idea
 gamedev
 node_modules
+.planning/.sessions/

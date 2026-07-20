@@ -1,4 +1,5 @@
 import { Component, Entity } from "@serbanghita-gamedev/ecs";
+import type { AttachmentPoint } from "./LineAttachmentComponent";
 
 export type SelectionRectangleComponentInitProps = {
   entities?: Entity[]
@@ -12,6 +13,10 @@ export default class SelectionRectangleComponent extends Component<SelectionRect
   // DragSystem skip presses claimed by a resize.
   public resizeHandleId: string | null = null;
   public connectionHandleId: string | null = null;
+  // The connection point the dragged line endpoint would snap to, while a
+  // connection drag is active. Written by ConnectionSystem, read by
+  // RenderSystem for the highlight ring - UI feedback only.
+  public connectionSnap: AttachmentPoint | null = null;
 
   constructor(public properties: SelectionRectangleComponentInitProps) {
     super(properties);

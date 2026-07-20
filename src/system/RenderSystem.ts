@@ -3,8 +3,9 @@ import RectangleComponent from "../component/RectangleComponent";
 import CircleComponent from "../component/CircleComponent";
 import LineComponent from "../component/LineComponent";
 import { IRenderer } from "../renderer";
-import { getSelectionHandles, HANDLE_RADIUS } from "../handles";
+import { getConnectionPoints, getSelectionHandles, HANDLE_RADIUS } from "../handles";
 import CameraComponent from "../component/CameraComponent";
+import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 
 // Selection visuals: a tight blue bounding box around the selected shapes,
 // with gray ring resize handles at its corners. A single selected line gets
@@ -64,6 +65,41 @@ export default class RenderingSystem extends System {
 
     // Selection overlay - always on top of the shapes.
     this.renderSelectionOverlay(scale);
+
+    // Snap targets while a connection line is being dragged - on top of all.
+    this.renderConnectionTargets(scale);
+  }
+
+  /**
+   * While a connection drag is active, show every shape's connection points
+   * so the user can see what the line can attach to, and ring-highlight the
+   * point the endpoint is currently snapped to.
+   */
+  private renderConnectionTargets(scale: number): void {
+    const selectionEntity = this.world.getEntity('selection');
+    if (!selectionEntity) {
+      return;
+    }
+    const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
+    if (!selectionComp.connectionHandleId) {
+      return;
+    }
+
+    const snap = selectionComp.connectionSnap;
+    this.query.execute().forEach((entity) => {
+      // Lines and non-shapes yield no connection points.
+      getConnectionPoints(entity).forEach((handle) => {
+        this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
+          fillColor: SELECTION_STROKE_COLOR,
+        });
+        if (snap && snap.entityId === entity.id && snap.handleId === handle.id) {
+          this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
+            strokeColor: SELECTION_STROKE_COLOR,
+            strokeWidth: 2 / scale,
+          });
+        }
+      });
+    });
   }
 
   private renderSelectionOverlay(scale: number): void {

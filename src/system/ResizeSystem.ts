@@ -5,6 +5,7 @@ import SelectionRectangleComponent from "../component/SelectionRectangleComponen
 import RectangleComponent from "../component/RectangleComponent";
 import CircleComponent from "../component/CircleComponent";
 import LineComponent from "../component/LineComponent";
+import LineAttachmentComponent from "../component/LineAttachmentComponent";
 import ToolStateComponent from "../component/ToolStateComponent";
 import { handleAtPoint, HandleId } from "../handles";
 import { getCameraScale } from "../camera";
@@ -80,6 +81,18 @@ export default class ResizeSystem extends System {
         this.grabOffsetX = handle.x - mouseComp.pressX;
         this.grabOffsetY = handle.y - mouseComp.pressY;
         selectionComp.resizeHandleId = handle.id;
+
+        // Grabbing an attached line endpoint detaches that side only, so it
+        // can follow the mouse instead of being re-pinned by
+        // LineAttachmentSystem; the other side's connection survives.
+        if ((handle.id === 'start' || handle.id === 'end') && target.hasComponent(LineAttachmentComponent)) {
+          const attachment = target.getComponent(LineAttachmentComponent);
+          if (handle.id === 'start') {
+            attachment.start = null;
+          } else {
+            attachment.end = null;
+          }
+        }
 
         // The opposite bounding-box corner stays fixed while dragging.
         if (selectionEntity.hasComponent(RectangleComponent)) {

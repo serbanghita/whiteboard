@@ -18,6 +18,7 @@ import DrawnOnLayer from "./component/DrawnOnLayer";
 import Layer from "./component/Layer";
 import CameraComponent from "./component/CameraComponent";
 import LineAttachmentComponent from "./component/LineAttachmentComponent";
+import TextComponent from "./component/TextComponent";
 
 // Systems
 import RenderingSystem from "./system/RenderSystem";
@@ -149,7 +150,7 @@ export class Whiteboard {
         IsRendered, IsMouseOver, IsMousePressed, MouseComponent,
         RectangleComponent, SelectionRectangleComponent, CircleComponent,
         LineComponent, IsSelected, ToolStateComponent, DrawnOnLayer,
-        Layer, CameraComponent, LineAttachmentComponent
+        Layer, CameraComponent, LineAttachmentComponent, TextComponent
       ]);
       Whiteboard.componentsRegistered = true;
     }

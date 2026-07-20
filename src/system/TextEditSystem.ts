@@ -34,12 +34,20 @@ export default class TextEditSystem extends System {
   private lastDblClickCount = 0;
   private textarea: HTMLTextAreaElement | null = null;
   private editingEntityId: string | null = null;
+  // Content at edit entry; a commit only records history when it changed.
+  private initialContent = '';
   private committing = false;
 
   public constructor(
     public world: World,
     public query: Query,
     private wrapper: HTMLElement,
+    // Whiteboard.recordHistory, same wiring as HistorySystem. Called on every
+    // commit that changed the content: Escape commits produce no mouse
+    // release, so HistorySystem's release-edge snapshot never sees them.
+    // (HistoryManager.pushState dedups identical states, but the changed
+    // check also avoids serializing the whole board on no-op commits.)
+    private onContentChanged: () => void,
   ) {
     super(world, query);
   }
@@ -134,6 +142,7 @@ export default class TextEditSystem extends System {
     this.wrapper.appendChild(textarea);
     this.textarea = textarea;
     this.editingEntityId = entity.id;
+    this.initialContent = existing?.content ?? '';
     toolState.editingEntityId = entity.id;
 
     textarea.focus();
@@ -154,8 +163,10 @@ export default class TextEditSystem extends System {
 
     const entity = this.world.getEntity(this.editingEntityId);
     const content = this.textarea.value;
+    // Empty commits store nothing - the effective content is ''.
+    const effectiveContent = content.trim() === '' ? '' : content;
     if (entity) {
-      if (content.trim() === '') {
+      if (effectiveContent === '') {
         entity.removeComponent(TextComponent);
       } else if (entity.hasComponent(TextComponent)) {
         entity.getComponent(TextComponent).content = content;
@@ -189,5 +200,11 @@ export default class TextEditSystem extends System {
       textarea.parentElement.removeChild(textarea);
     }
     this.committing = false;
+
+    // One history snapshot per committed edit (blur and Escape alike), after
+    // all edit state is torn down so the snapshot sees the final world.
+    if (entity && effectiveContent !== this.initialContent) {
+      this.onContentChanged();
+    }
   }
 }

@@ -191,7 +191,7 @@ export class Whiteboard {
     this.world.createSystem(ResizeSystem, selectionQuery);
     this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
     // Text editing targets the same rect+circle set a connection can snap to.
-    this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper);
+    this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
     this.world.createSystem(MousePressSystem, selectableShapesQuery);
     this.world.createSystem(DragSystem, selectionQuery);
     // After every system that moves/resizes shapes, before Selection/Render:
@@ -537,11 +537,14 @@ export class Whiteboard {
     if (state !== null) this.loadShapes(state);
   }
 
-  // Applying a snapshot mid-drag/mid-draw would fight the active gesture.
+  // Applying a snapshot mid-drag/mid-draw/mid-text-edit would fight the
+  // active gesture (or delete the entity under the open textarea).
   private canApplyHistory(): boolean {
     if (this.cursor.hasComponent(IsMousePressed)) return false;
     const toolEntity = this.world.getEntity('tool');
-    return !toolEntity || toolEntity.getComponent(ToolStateComponent).drawState === 'IDLE';
+    if (!toolEntity) return true;
+    const toolState = toolEntity.getComponent(ToolStateComponent);
+    return toolState.drawState === 'IDLE' && !toolState.editingEntityId;
   }
 
   private updateHistoryButtons(): void {

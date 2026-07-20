@@ -6,14 +6,6 @@ A lightweight, portable drawing application built with TypeScript using an Entit
 
 Draw and resize the basic shapes: **rectangle**, **circle**, and **connecting lines** between shapes.
 
-## Tech Stack
-
-- **Language**: TypeScript (strict, typecheck with `npx tsc --noEmit`)
-- **Build**: esbuild (ES modules) — `npm run build` / `npm run dev`
-- **Architecture**: ECS (Entity Component System)
-- **Rendering**: WebGL via the in-repo `src/renderer/` (`WebGLRenderer` implements `IRenderer`)
-- **Testing**: Vitest + jsdom, WebGL mocked in `src/__mocks__/webgl.ts` — `npm test`
-
 ## External Dependencies (local file: links)
 
 `@serbanghita-gamedev/ecs` and `@serbanghita-gamedev/quadtree` are consumed **from the local
@@ -166,10 +158,6 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
 
 ## Current Features
 
-- Canvas starts empty on load (no demo shapes)
-- Tool palette: cursor / rectangle / circle / line (floating menu built by `Whiteboard.ts`)
-- Rectangle & circle: press-drag-release drawing with live preview and min-size cancel
-- Line: two-click drawing with live preview, Escape to cancel
 - After every successful draw the tool auto-reverts to cursor with the fresh shape selected, so its
   handles show and it can be dragged immediately (`src/autoSelect.ts`; note: the menu highlight is
   NOT synced on auto-revert since the Whiteboard refactor — known regression)

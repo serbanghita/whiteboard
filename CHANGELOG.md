@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Endpoint re-attach: dragging a line's start/end ring handle now glues the endpoint to nearby
+  shapes' connection points and re-attaches it on release (ResizeSystem, sharing the
+  `connectionSnapTarget` rule) — previously an endpoint drag could only detach. The other end's
+  shape is excluded (no both-ends-on-one-shape), a never-attached line gains its
+  `LineAttachmentComponent` on drop, a grab-and-release-in-place re-attaches with zero extra undo
+  steps, and each re-attach is exactly one undo step.
 - Save/Load semantic JSON (v2): `Whiteboard.save()` exports an LLM-friendly `{v, camera, nodes,
   edges}` document — nodes carry the system-design type (`"gw"`, `"db"`, ... via the new
   `RectangleComponent.sysType`, stamped when a SYS tool draws), edges encode attachments as
@@ -63,6 +69,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `textLayout.ts` (pure layout: interior boxes, greedy wrap, clip, centering, injectable
   measurer), `textRaster.ts` (raster + texture cache), `TextComponent`, `TextEditSystem`, and
   `IRenderer.createTextureFromCanvas`/`texturedQuad`/`deleteTexture`/`maxTextureSize`.
+
+### Changed
+- Connection snapping rule: the free endpoint now snaps to the **topmost** shape whose bounding
+  box, inflated by 12 screen px (`CONNECTION_SNAP_RADIUS` / zoom), contains the cursor — hovering
+  anywhere over a shape's body glues to its **nearest** connection dot (was: only within 12px of
+  the exact dot, nearest dot across all shapes). `connectionPointNear` is replaced by
+  `connectionSnapTarget` in `src/handles.ts`.
+- Snap-dot reveal: while dragging a line endpoint (connection draw or endpoint re-drag), connection
+  dots are shown **only on the current snap target** with a ring on the glue point (was: all
+  shapes' dots during a connection draw, and none at all during an endpoint re-drag).
+- A two-click line's committing press is now suppressed (`autoSelectFreshShape` stamps
+  `suppressedPressCount`), so the same-frame switch to the cursor tool can no longer hand that
+  press to ResizeSystem as an endpoint grab — with snapping this would have yanked the fresh
+  line's endpoint onto a nearby shape.
 
 ### Removed
 - The never-implemented `IRenderer.text()` stub and `TextOptions` (replaced by the textured-quad

@@ -64,8 +64,12 @@ src/
 │                               #   power-of-two zoom buckets, uploads via IRenderer, per-entity cache
 │                               #   (key: content|box|font|color|bucket), freeze-stretch during resizes
 ├── handles.ts                  # Handle geometry: selection handles + connection points
-│                               #   (getConnectionPoints / connectionPointNear for snap targets)
-├── autoSelect.ts               # Post-draw auto-switch to cursor tool with fresh shape selected
+│                               #   (getConnectionPoints / connectionSnapTarget: topmost shape whose
+│                               #   bbox inflated by CONNECTION_SNAP_RADIUS/scale contains the point,
+│                               #   snapping to its nearest connection dot)
+├── autoSelect.ts               # Post-draw auto-switch to cursor tool with fresh shape selected;
+│                               #   stamps suppressedPressCount so a press-edge commit (two-click
+│                               #   line) can't be claimed as an endpoint grab in the same frame
 ├── systemDesign.ts             # SYSTEM_DESIGN_TOOLS registry (17 primitives, importance order):
 │                               #   single source of truth for the ToolType union, the SYS panel
 │                               #   buttons and the label stamped on drawn shapes
@@ -109,7 +113,10 @@ src/
     ├── LineDrawSystem.ts       # Two-click line drawing (min length 5)
     ├── ResizeSystem.ts         # Resize selected shape via handle drag (runs BEFORE MousePress/Drag,
     │                           #   claims the press via SelectionRectangleComponent.resizeHandleId);
-    │                           #   grabbing an attached line endpoint detaches that side
+    │                           #   grabbing an attached line endpoint detaches that side, then the
+    │                           #   dragged endpoint glues to nearby shapes' connection points
+    │                           #   (connectionSnapTarget, other end's shape excluded) and
+    │                           #   re-attaches on release, creating the component if missing
     ├── TextEditSystem.ts       # Double-click a rect/circle -> transparent textarea overlay over the
     │                           #   interior box; commit on blur/Escape (Escape commits, not cancels);
     │                           #   empty commit removes TextComponent; commit stamps
@@ -127,7 +134,9 @@ src/
     │                           #   TextTextureCache; skips the entity being edited; lines get
     │                           #   filled arrowhead triangles per arrowStart/arrowEnd, clamped to
     │                           #   half the line length), the selection
-    │                           #   overlay, then snap-target dots while a connection drag is active
+    │                           #   overlay, then - while a connection drag OR a line endpoint
+    │                           #   resize is live - the snap target's dots (only that shape's,
+    │                           #   ring on the glue point; no target, no dots)
     ├── ConnectionSystem.ts     # Draws new lines from connection handles, snapping the free endpoint
     │                           #   to other shapes' connection points and recording attachments
     └── HistorySystem.ts        # Runs LAST: on each mouse-release edge (skipped while a draw is
@@ -163,7 +172,7 @@ dist/
 
 ToolState → Rectangle/Circle/LineDraw → **Resize** → **Connection** → **TextEdit** → MousePress → Drag → **LineAttachment** → MouseOver → MouseOut → Selection → Render → **History** (last).
 Resize/Connection must precede MousePress/Drag: a press on a handle sets `resizeHandleId`/`connectionHandleId` and the others skip it.
-A text-edit click-away commit stamps `ToolStateComponent.suppressedPressCount`; all four press consumers (Resize, Connection, MousePress, Drag) skip any press with `pressCount <= suppressedPressCount` for its **entire hold** (Drag has no edge gate, so the guard sits before its movement logic).
+A text-edit click-away commit stamps `ToolStateComponent.suppressedPressCount`, and so does `autoSelectFreshShape` (a two-click line commits on a press edge and switches to cursor mid-frame - without the stamp, ResizeSystem would claim that same press as an endpoint grab and snap the fresh line away); all four press consumers (Resize, Connection, MousePress, Drag) skip any press with `pressCount <= suppressedPressCount` for its **entire hold** (Drag has no edge gate, so the guard sits before its movement logic).
 LineAttachment must follow every system that mutates shapes (Resize, Connection, Drag) and precede Selection/Render, so re-pinned lines render in the same frame.
 History must run last so its release-edge snapshot sees the frame's fully finalized state (draw committed, drag ended, lines re-pinned).
 
@@ -213,15 +222,20 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   move individually. Grab offset preserved (no jump), 8px hit radius (`handles.ts`), min sizes as
   in the draw systems
 - **Connecting lines** (ConnectionSystem): drag out of a selected shape's blue n/e/s/w dot to draw a
-  line whose start is attached to that handle. While dragging, every other rect/circle shows its
-  connection dots and the free endpoint **snaps** to the nearest one within 12 screen px
-  (`CONNECTION_SNAP_RADIUS`, nearest wins, source shape excluded); the active target gets a ring
-  highlight (`SelectionRectangleComponent.connectionSnap`). Release on a point attaches the end;
-  release elsewhere leaves a dangling end; a stray click (< 5 length, unsnapped) creates nothing
+  line whose start is attached to that handle. While dragging, the free endpoint **snaps** to the
+  **topmost** rect/circle whose bbox, inflated by 12 screen px (`CONNECTION_SNAP_RADIUS` / scale),
+  contains the cursor - hovering the body is enough - gluing to the **nearest of its 4 dots**
+  (source shape excluded). Only that snap target shows its connection dots, with a ring on the glue
+  point (`SelectionRectangleComponent.connectionSnap` doubles as glue state and reveal target).
+  Release on a point attaches the end; release elsewhere leaves a dangling end; a stray click
+  (< 5 length, unsnapped) creates nothing
 - **Attached lines track shapes** (`LineAttachmentComponent` + `LineAttachmentSystem`): endpoints
   pinned to `{entityId, handleId}` are recomputed from the shape's bounds every frame, so lines
   follow drags AND resizes. Dragging an attached line's body detaches both ends (DragSystem);
-  grabbing an endpoint handle detaches just that side (ResizeSystem). Dangling refs self-clean;
+  grabbing an endpoint handle detaches just that side (ResizeSystem), and the dragged endpoint
+  **re-snaps and re-attaches** on release under the same inflated-bbox rule (the other end's shape
+  is excluded so a line can't loop onto one shape; the component is created for a never-attached
+  line, and a release-in-place re-attach dedups to zero undo steps). Dangling refs self-clean;
   a fully detached line loses the component
 - **Undo/redo** (`HistoryManager` + `HistorySystem` + menu buttons): every completed action is
   snapshotted via `saveShapes()` on mouse release (dedup by string equality, so no-op releases don't
@@ -301,7 +315,6 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
 ## TODO / Incomplete
 
 - Resize cursor feedback (nwse-resize etc. when hovering a handle)
-- Re-snap/re-attach when dragging a line endpoint near a connection point (endpoint drag only detaches today)
 - `Whiteboard.save()/load()` export/import the v2 semantic JSON via the popup (v1.1/v1.0 files
   still load), but there's no localStorage hookup or file download yet
 - Menu highlight not synced when a draw auto-reverts to cursor (regression from the Whiteboard refactor)

@@ -1930,25 +1930,35 @@
       { id: "w", x: bounds.x, y: bounds.y + bounds.height / 2 }
     ];
   }
-  function connectionPointNear(candidates, x, y, scale, excludeEntityId) {
-    const snapRadius = CONNECTION_SNAP_RADIUS / scale;
-    let best = null;
-    let bestDistSq = snapRadius * snapRadius;
-    for (const entity of candidates) {
+  function connectionSnapTarget(candidates, x, y, scale, excludeEntityId) {
+    const margin = CONNECTION_SNAP_RADIUS / scale;
+    const entities = [...candidates];
+    for (let i = entities.length - 1; i >= 0; i--) {
+      const entity = entities[i];
       if (entity.id === excludeEntityId) {
         continue;
       }
+      const bounds = getEntityBounds(entity);
+      if (!bounds) {
+        continue;
+      }
+      if (x < bounds.x - margin || x > bounds.x + bounds.width + margin || y < bounds.y - margin || y > bounds.y + bounds.height + margin) {
+        continue;
+      }
+      let best = null;
+      let bestDistSq = Infinity;
       for (const handle of getConnectionPoints(entity)) {
         const dx = x - handle.x;
         const dy = y - handle.y;
         const distSq = dx * dx + dy * dy;
-        if (distSq <= bestDistSq) {
-          best = { entity, handle };
+        if (distSq < bestDistSq) {
+          best = handle;
           bestDistSq = distSq;
         }
       }
+      return best ? { entity, handle: best } : null;
     }
-    return best;
+    return null;
   }
 
   // src/textLayout.ts
@@ -2246,9 +2256,10 @@
       }
     }
     /**
-     * While a connection drag is active, show every shape's connection points
-     * so the user can see what the line can attach to, and ring-highlight the
-     * point the endpoint is currently snapped to.
+     * While a line endpoint is being dragged - a connection drag out of a
+     * shape's dot, or a ResizeSystem drag of a line's start/end handle - show
+     * the connection points of the shape the endpoint is currently snapped to,
+     * ring-highlighting the glue point. No snap target -> no dots.
      */
     renderConnectionTargets(scale) {
       const selectionEntity = this.world.getEntity("selection");
@@ -2256,22 +2267,28 @@
         return;
       }
       const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
-      if (!selectionComp.connectionHandleId) {
+      const endpointResize = selectionComp.resizeHandleId === "start" || selectionComp.resizeHandleId === "end";
+      if (!selectionComp.connectionHandleId && !endpointResize) {
         return;
       }
       const snap = selectionComp.connectionSnap;
-      this.query.execute().forEach((entity) => {
-        getConnectionPoints(entity).forEach((handle) => {
-          this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
-            fillColor: SELECTION_STROKE_COLOR
-          });
-          if (snap && snap.entityId === entity.id && snap.handleId === handle.id) {
-            this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
-              strokeColor: SELECTION_STROKE_COLOR,
-              strokeWidth: 2 / scale
-            });
-          }
+      if (!snap) {
+        return;
+      }
+      const target = this.world.getEntity(snap.entityId);
+      if (!target) {
+        return;
+      }
+      getConnectionPoints(target).forEach((handle) => {
+        this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
+          fillColor: SELECTION_STROKE_COLOR
         });
+        if (snap.handleId === handle.id) {
+          this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
+            strokeColor: SELECTION_STROKE_COLOR,
+            strokeWidth: 2 / scale
+          });
+        }
       });
     }
     renderSelectionOverlay(scale) {
@@ -2539,14 +2556,19 @@
   var MIN_RECTANGLE_SIZE = 5;
   var MIN_CIRCLE_RADIUS = 3;
   var ResizeSystem = class extends System {
-    constructor(world, query) {
+    constructor(world, query, connectableQuery) {
       super(world, query);
       this.world = world;
       this.query = query;
+      this.connectableQuery = connectableQuery;
     }
     lastPressCount = 0;
     activeHandleId = null;
     targetEntityId = null;
+    // The shape the line's OTHER end is attached to: excluded from snapping so
+    // a line can't end up with both endpoints on one shape (mirrors
+    // ConnectionSystem's source exclusion).
+    excludeEntityId = null;
     // The fixed bounding-box corner (rect/circle resizes).
     anchorX = 0;
     anchorY = 0;
@@ -2572,9 +2594,10 @@
       if (toolEntity && mouseComp.pressCount <= toolEntity.getComponent(ToolStateComponent).suppressedPressCount) {
         return;
       }
+      const scale = getCameraScale(this.world);
       if (pressEdge) {
         this.stop(selectionComp);
-        const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY, getCameraScale(this.world));
+        const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY, scale);
         const isConnectionHandle = handle && (handle.id === "n" || handle.id === "e" || handle.id === "s" || handle.id === "w");
         if (handle && !isConnectionHandle && selectionComp.entities.size === 1) {
           const [target2] = selectionComp.entities.values();
@@ -2585,6 +2608,7 @@
           selectionComp.resizeHandleId = handle.id;
           if ((handle.id === "start" || handle.id === "end") && target2.hasComponent(LineAttachmentComponent)) {
             const attachment = target2.getComponent(LineAttachmentComponent);
+            this.excludeEntityId = (handle.id === "start" ? attachment.end : attachment.start)?.entityId ?? null;
             if (handle.id === "start") {
               attachment.start = null;
             } else {
@@ -2599,6 +2623,7 @@
         }
       }
       if (!cursor.hasComponent(IsMousePressed)) {
+        this.finishEndpointDrag(selectionComp, mouseComp, scale);
         this.stop(selectionComp);
         return;
       }
@@ -2610,13 +2635,79 @@
         this.stop(selectionComp);
         return;
       }
-      this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+      if (this.activeHandleId === "start" || this.activeHandleId === "end") {
+        const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+        if (snap) {
+          this.applyResize(target, snap.handle.x, snap.handle.y);
+          selectionComp.connectionSnap = {
+            entityId: snap.entity.id,
+            handleId: snap.handle.id
+          };
+        } else {
+          this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+          selectionComp.connectionSnap = null;
+        }
+      } else {
+        this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+      }
       selectionComp.isDirty = true;
     }
     stop(selectionComp) {
+      if (this.activeHandleId === "start" || this.activeHandleId === "end") {
+        selectionComp.connectionSnap = null;
+      }
       this.activeHandleId = null;
       this.targetEntityId = null;
+      this.excludeEntityId = null;
       selectionComp.resizeHandleId = null;
+    }
+    findSnap(x, y, scale) {
+      return connectionSnapTarget(
+        this.connectableQuery.execute().values(),
+        x,
+        y,
+        scale,
+        this.excludeEntityId
+      );
+    }
+    /**
+     * On release of a line endpoint drag: if the endpoint is over a snap
+     * target, pin it there, creating the LineAttachmentComponent when the line
+     * never had one. The snap is recomputed at the release-time cursor rather
+     * than read from connectionSnap - a press+release landing between two
+     * frames reaches this point without a held frame having run. Unsnapped
+     * releases leave the endpoint where the drag put it (detach-only).
+     */
+    finishEndpointDrag(selectionComp, mouseComp, scale) {
+      const side = this.activeHandleId;
+      if (side !== "start" && side !== "end") {
+        return;
+      }
+      const target = this.targetEntityId ? this.world.getEntity(this.targetEntityId) : void 0;
+      if (!target || !target.hasComponent(LineComponent)) {
+        return;
+      }
+      const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+      if (!snap) {
+        return;
+      }
+      const line = target.getComponent(LineComponent);
+      if (side === "start") {
+        line.x1 = snap.handle.x;
+        line.y1 = snap.handle.y;
+      } else {
+        line.x2 = snap.handle.x;
+        line.y2 = snap.handle.y;
+      }
+      if (!target.hasComponent(LineAttachmentComponent)) {
+        target.addComponent(LineAttachmentComponent, { start: null, end: null });
+      }
+      const attachment = target.getComponent(LineAttachmentComponent);
+      attachment[side] = {
+        entityId: snap.entity.id,
+        handleId: snap.handle.id
+      };
+      selectionComp.isDirty = true;
     }
     applyResize(target, x, y) {
       if (target.hasComponent(LineComponent)) {
@@ -2658,7 +2749,12 @@
     if (!toolEntity || !selectionEntity) {
       return;
     }
-    toolEntity.getComponent(ToolStateComponent).currentTool = "cursor";
+    const toolComp = toolEntity.getComponent(ToolStateComponent);
+    toolComp.currentTool = "cursor";
+    const cursorEntity = world.getEntity("cursor");
+    if (cursorEntity && cursorEntity.hasComponent(MouseComponent)) {
+      toolComp.suppressedPressCount = cursorEntity.getComponent(MouseComponent).pressCount;
+    }
     const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
     selectionComp.clear();
     selectionComp.addEntity(entity);
@@ -2765,7 +2861,7 @@
       }
     }
     findSnap(x, y, scale) {
-      return connectionPointNear(
+      return connectionSnapTarget(
         this.connectableQuery.execute().values(),
         x,
         y,
@@ -2775,7 +2871,10 @@
     }
     stop(selectionComp) {
       selectionComp.connectionHandleId = null;
-      selectionComp.connectionSnap = null;
+      const resizeOwnsSnap = selectionComp.resizeHandleId === "start" || selectionComp.resizeHandleId === "end";
+      if (!resizeOwnsSnap) {
+        selectionComp.connectionSnap = null;
+      }
       this.sourceEntityId = null;
       if (this.previewEntityId) {
         this.world.removeEntity(this.previewEntityId);
@@ -3433,7 +3532,7 @@
       this.world.createSystem(RectangleDrawSystem, toolQuery);
       this.world.createSystem(CircleDrawSystem, toolQuery);
       this.world.createSystem(LineDrawSystem, toolQuery);
-      this.world.createSystem(ResizeSystem, selectionQuery);
+      this.world.createSystem(ResizeSystem, selectionQuery, connectableShapesQuery);
       this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
       this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
       this.world.createSystem(MousePressSystem, selectableShapesQuery);

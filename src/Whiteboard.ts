@@ -64,6 +64,13 @@ export class Whiteboard {
   private $redoBtn!: HTMLButtonElement;
   private $sysBtn!: HTMLButtonElement;
   private $sysPanel!: HTMLDivElement;
+  // Save/Load popup elements (class-queried refs, never DOM ids - ids would
+  // collide across Whiteboard instances).
+  private $popup!: HTMLDivElement;
+  private $popupPanel!: HTMLDivElement;
+  private $popupTextarea!: HTMLTextAreaElement;
+  private $popupConfirm!: HTMLButtonElement;
+  private $popupNotice!: HTMLSpanElement;
   private loadedShapeCounter = 0;
   private duplicateCounter = 0;
 
@@ -125,6 +132,9 @@ export class Whiteboard {
         <button data-action="redo" title="Redo (Cmd+Shift+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
         </button>
+        <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
+        <button data-action="save" title="Save JSON" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:20px;">&#128190;</button>
+        <button data-action="load" title="Load JSON" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:20px;">&#128194;</button>
     `;
     this.$undoBtn = menu.querySelector('[data-action="undo"]')!;
     this.$redoBtn = menu.querySelector('[data-action="redo"]')!;
@@ -329,6 +339,8 @@ export class Whiteboard {
         if (actionButton.dataset.action === 'undo') this.undo();
         else if (actionButton.dataset.action === 'redo') this.redo();
         else if (actionButton.dataset.action === 'toggle-sys') this.toggleSysPanel();
+        else if (actionButton.dataset.action === 'save') this.openSavePopup();
+        else if (actionButton.dataset.action === 'load') this.openLoadPopup();
         return;
       }
 
@@ -437,6 +449,118 @@ export class Whiteboard {
     this.$sysBtn.style.background = open ? '#e8f0fe' : 'transparent';
     // The explicit set above supersedes any in-flight hover tint.
     delete this.$sysBtn.dataset.hoverTint;
+  }
+
+  // Builds the Save/Load popup overlay on first open (lazy: while closed
+  // there must be NO popup textarea in the DOM - the text-edit overlay is
+  // found by element type). Shown via display:'flex' - the centering styles
+  // need flex to apply.
+  private buildSaveLoadPopup(): void {
+    if (this.$popup) return;
+    this.$popup = document.createElement('div');
+    this.$popup.style.display = 'none';
+    this.$popup.style.position = 'absolute';
+    this.$popup.style.inset = '0';
+    this.$popup.style.background = 'rgba(0, 0, 0, 0.5)';
+    this.$popup.style.zIndex = '2000';
+    this.$popup.style.alignItems = 'center';
+    this.$popup.style.justifyContent = 'center';
+    this.$popup.innerHTML = `
+      <div class="save-load-panel" tabindex="-1" style="background:white;padding:20px;border-radius:8px;width:60%;height:60%;display:flex;flex-direction:column;gap:10px;box-shadow:2px 4px 8px rgba(0,0,0,0.15);">
+        <textarea class="save-load-textarea" spellcheck="false" style="flex:1;font-family:monospace;font-size:12px;resize:none;border:1px solid #ccc;border-radius:4px;padding:8px;"></textarea>
+        <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+          <span class="save-load-notice" style="margin-right:auto;font:12px sans-serif;color:#666;"></span>
+          <button class="save-load-cancel" style="padding:6px 16px;border:1px solid #ccc;background:white;border-radius:4px;cursor:pointer;">Cancel</button>
+          <button class="save-load-confirm" style="padding:6px 16px;border:none;background:#1a73e8;color:white;border-radius:4px;cursor:pointer;">Load</button>
+        </div>
+      </div>
+    `;
+    this.$popupPanel = this.$popup.querySelector('.save-load-panel')!;
+    this.$popupTextarea = this.$popup.querySelector('.save-load-textarea')!;
+    this.$popupConfirm = this.$popup.querySelector('.save-load-confirm')!;
+    this.$popupNotice = this.$popup.querySelector('.save-load-notice')!;
+    this.$wrapper.appendChild(this.$popup);
+
+    // The popup owns the keyboard while open: keydown only bubbles here
+    // while focus is inside the popup subtree (hence focus-on-open below and
+    // tabindex=-1 on the panel), and stopping propagation keeps popup typing
+    // away from the whiteboard shortcuts.
+    this.$popup.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') this.closeSaveLoadPopup();
+    });
+    // Backdrop click closes without action; clicks on the panel's padding
+    // refocus it so Escape has no dead corner.
+    this.$popup.addEventListener('click', (e) => {
+      if (e.target === this.$popup) this.closeSaveLoadPopup();
+      else if (e.target === this.$popupPanel) this.$popupPanel.focus();
+    });
+    this.$popup.querySelector('.save-load-cancel')!.addEventListener('click', () => this.closeSaveLoadPopup());
+    this.$popupConfirm.addEventListener('click', () => this.confirmLoad());
+  }
+
+  // Shows the exported v2 document, read-only, ready to copy.
+  private openSavePopup(): void {
+    // An open text edit only commits on blur - commit first so the export
+    // contains the in-flight text (precedent: wheel/resize handlers).
+    this.commitTextEditIfAny();
+    this.buildSaveLoadPopup();
+    this.resetPopupState();
+    this.$popupTextarea.value = JSON.stringify(JSON.parse(this.save()), null, 2);
+    this.$popupTextarea.readOnly = true;
+    // Disabled, not hidden - no layout jump between the two modes.
+    this.$popupConfirm.disabled = true;
+    this.$popupConfirm.style.opacity = '0.3';
+    this.$popup.style.display = 'flex';
+    this.$popupTextarea.focus();
+    this.$popupTextarea.select();
+  }
+
+  // Shows an empty editable textarea to paste a document into.
+  private openLoadPopup(): void {
+    // Mirrors Save - otherwise a hidden open editor makes confirmLoad's gate
+    // refuse with no visible cause.
+    this.commitTextEditIfAny();
+    this.buildSaveLoadPopup();
+    this.resetPopupState();
+    this.$popupTextarea.value = '';
+    this.$popupTextarea.readOnly = false;
+    this.$popupConfirm.disabled = false;
+    this.$popupConfirm.style.opacity = '1';
+    this.$popup.style.display = 'flex';
+    this.$popupTextarea.focus();
+  }
+
+  private confirmLoad(): void {
+    // The edit was committed on open, so this only guards the genuinely
+    // un-committable states (mouse held, draw mid-gesture).
+    if (!this.canApplyHistory()) return;
+    try {
+      const result = this.load(this.$popupTextarea.value);
+      if (result.skipped > 0) {
+        // Partial success is never silent - keep the popup open with a
+        // non-error notice.
+        this.resetPopupState();
+        this.$popupNotice.textContent = `Loaded ${result.loaded} shapes, skipped ${result.skipped} malformed entries`;
+      } else {
+        this.closeSaveLoadPopup();
+      }
+    } catch (err) {
+      this.$popupTextarea.style.borderColor = 'red';
+      this.$popupNotice.textContent = err instanceof Error ? err.message : 'Invalid JSON';
+      this.$popupNotice.style.color = 'red';
+    }
+  }
+
+  private resetPopupState(): void {
+    this.$popupTextarea.style.borderColor = '#ccc';
+    this.$popupNotice.textContent = '';
+    this.$popupNotice.style.color = '#666';
+  }
+
+  private closeSaveLoadPopup(): void {
+    this.resetPopupState();
+    this.$popup.style.display = 'none';
   }
 
   public destroy() {

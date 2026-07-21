@@ -3,8 +3,10 @@ import ToolStateComponent from "../component/ToolStateComponent";
 import MouseComponent from "../component/MouseComponent";
 import IsMousePressed from "../component/IsMousePressed";
 import RectangleComponent from "../component/RectangleComponent";
+import TextComponent from "../component/TextComponent";
 import IsRendered from "../component/IsRendered";
 import { autoSelectFreshShape } from "../autoSelect";
+import { isSystemDesignTool, systemDesignLabel } from "../systemDesign";
 
 const MIN_RECTANGLE_SIZE = 5;
 
@@ -41,8 +43,8 @@ export default class RectangleDrawSystem extends System {
     this.lastPressCount = mouseComp.pressCount;
     this.lastReleaseCount = mouseComp.releaseCount;
 
-    // Only handle rectangle mode
-    if (toolState.currentTool !== 'rectangle') return;
+    // Only handle rectangle and system design tools (labeled rect variants)
+    if (toolState.currentTool !== 'rectangle' && !isSystemDesignTool(toolState.currentTool)) return;
 
     // State machine: IDLE -> FIRST_POINT_SET -> IDLE
     if (toolState.drawState === 'IDLE') {
@@ -105,6 +107,16 @@ export default class RectangleDrawSystem extends System {
               console.log(`Rectangle created: ${toolState.previewEntityId}`);
               // Switch to the cursor tool with the fresh shape selected, so
               // its handles show and it can be dragged right away.
+              const label = systemDesignLabel(toolState.currentTool);
+              if (label) {
+                previewEntity.addComponent(TextComponent, {
+                  content: label,
+                  fontSize: 16,
+                  fontFamily: 'sans-serif',
+                  color: 'black'
+                });
+              }
+
               autoSelectFreshShape(this.world, previewEntity);
             }
           }

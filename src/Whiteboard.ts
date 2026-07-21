@@ -19,6 +19,7 @@ import Layer from "./component/Layer";
 import CameraComponent from "./component/CameraComponent";
 import LineAttachmentComponent from "./component/LineAttachmentComponent";
 import TextComponent from "./component/TextComponent";
+import { SYSTEM_DESIGN_TOOLS } from "./systemDesign";
 
 // Systems
 import RenderingSystem from "./system/RenderSystem";
@@ -36,6 +37,10 @@ import LineDrawSystem from "./system/LineDrawSystem";
 import LineAttachmentSystem from "./system/LineAttachmentSystem";
 import TextEditSystem from "./system/TextEditSystem";
 import HistorySystem from "./system/HistorySystem";
+
+// Screen-pixel offset applied to duplicated shapes (converted to world units
+// at the current zoom), so the copy never hides the original exactly.
+const DUPLICATE_OFFSET = 16;
 
 export class Whiteboard {
   public world: World;
@@ -55,7 +60,10 @@ export class Whiteboard {
   private history!: HistoryManager;
   private $undoBtn!: HTMLButtonElement;
   private $redoBtn!: HTMLButtonElement;
+  private $sysBtn!: HTMLButtonElement;
+  private $sysPanel!: HTMLDivElement;
   private loadedShapeCounter = 0;
+  private duplicateCounter = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -84,6 +92,11 @@ export class Whiteboard {
     menu.style.flexDirection = 'column';
     menu.style.gap = '4px';
     menu.style.zIndex = '1000';
+    // The SYS panel buttons come from the registry, in importance order.
+    const sysButtons = SYSTEM_DESIGN_TOOLS.map(t => `
+            <button data-tool="${t.id}" title="${t.title}" style="width:100%;box-sizing:border-box;height:32px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px;white-space:nowrap;">
+                <span style="font-size:11px;font-family:sans-serif;font-weight:bold;color:#333;">${t.title}</span>
+            </button>`).join('');
     menu.innerHTML = `
         <button data-tool="cursor" class="active" title="Select (V)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
@@ -98,6 +111,12 @@ export class Whiteboard {
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="5" y1="19" x2="19" y2="5"/></svg>
         </button>
         <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
+        <button data-action="toggle-sys" title="System Design shapes" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:12px;font-family:sans-serif;font-weight:bold;color:#1a73e8;">SYS</span>
+        </button>
+        <div class="sys-design-panel">${sysButtons}
+        </div>
+        <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
         <button data-action="undo" title="Undo (Cmd+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
         </button>
@@ -107,6 +126,21 @@ export class Whiteboard {
     `;
     this.$undoBtn = menu.querySelector('[data-action="undo"]')!;
     this.$redoBtn = menu.querySelector('[data-action="redo"]')!;
+    this.$sysBtn = menu.querySelector('[data-action="toggle-sys"]')!;
+    // Styled via properties, not a style attribute: jsdom's CSS parser drops
+    // the whole attribute when grid-template-columns follows a shorthand.
+    this.$sysPanel = menu.querySelector('.sys-design-panel')!;
+    this.$sysPanel.style.display = 'none';
+    this.$sysPanel.style.position = 'absolute';
+    this.$sysPanel.style.left = 'calc(100% + 8px)';
+    this.$sysPanel.style.top = '0';
+    this.$sysPanel.style.background = 'white';
+    this.$sysPanel.style.borderRadius = '8px';
+    this.$sysPanel.style.boxShadow = '2px 4px 8px rgba(0, 0, 0, 0.15)';
+    this.$sysPanel.style.padding = '8px';
+    this.$sysPanel.style.gridTemplateColumns = 'repeat(2, 132px)';
+    this.$sysPanel.style.gap = '4px';
+    this.$sysPanel.style.zIndex = '1000';
     this.$wrapper.appendChild(menu);
 
     this.$canvas = document.createElement('canvas');
@@ -284,6 +318,7 @@ export class Whiteboard {
       if (actionButton) {
         if (actionButton.dataset.action === 'undo') this.undo();
         else if (actionButton.dataset.action === 'redo') this.redo();
+        else if (actionButton.dataset.action === 'toggle-sys') this.toggleSysPanel();
         return;
       }
 
@@ -293,7 +328,11 @@ export class Whiteboard {
       const toolName = button.dataset.tool as ToolType;
       if (!toolName) return;
 
-      menu.querySelectorAll('[data-tool]').forEach(btn => (btn as HTMLElement).style.background = 'transparent');
+      menu.querySelectorAll('[data-tool]').forEach(btn => {
+        (btn as HTMLElement).style.background = 'transparent';
+        // The explicit set above supersedes any in-flight hover tint.
+        delete (btn as HTMLElement).dataset.hoverTint;
+      });
       button.style.background = '#e0e0e0';
 
       const toolEntity = this.world.getEntity('tool');
@@ -305,6 +344,26 @@ export class Whiteboard {
         toolState.currentTool = toolName;
         toolState.reset();
       }
+    });
+
+    // Hover feedback for every menu (and SYS panel) button: buttons at rest
+    // (inline background 'transparent') get a light grey tint, tracked with a
+    // hoverTint flag so only the tint is ever reset - the active-tool
+    // (#e0e0e0) and open-SYS (#e8f0fe) highlights are never touched.
+    menu.addEventListener('mouseover', (e) => {
+      const button = (e.target as HTMLElement).closest('button');
+      if (!button || button.disabled) return;
+      if (button.style.background !== 'transparent') return;
+      button.style.background = '#f0f0f0';
+      button.dataset.hoverTint = '1';
+    });
+    menu.addEventListener('mouseout', (e) => {
+      const button = (e.target as HTMLElement).closest('button');
+      if (!button || !button.dataset.hoverTint) return;
+      // Moving onto the button's own span/svg fires mouseout too - not a leave.
+      if (e.relatedTarget instanceof Node && button.contains(e.relatedTarget)) return;
+      delete button.dataset.hoverTint;
+      button.style.background = 'transparent';
     });
 
     this.boundKeydown = (e: KeyboardEvent) => {
@@ -328,6 +387,22 @@ export class Whiteboard {
         return;
       }
 
+      // Cmd/Ctrl+D duplicates the selected shapes (preventDefault blocks the
+      // browser's bookmark dialog).
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        this.duplicateSelection();
+        return;
+      }
+
+      // Delete/Backspace removes the selected shapes (Backspace would
+      // otherwise navigate back in some browsers).
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        this.deleteSelection();
+        return;
+      }
+
       if (e.key === 'Escape') {
         const toolEntity = this.world.getEntity('tool');
         if (toolEntity) {
@@ -342,6 +417,16 @@ export class Whiteboard {
       }
     };
     document.addEventListener('keydown', this.boundKeydown);
+  }
+
+  // Shows/hides the system-design shape panel (the grid to the right of the
+  // menu). The SYS button stays tinted while the panel is open.
+  private toggleSysPanel(): void {
+    const open = this.$sysPanel.style.display === 'none';
+    this.$sysPanel.style.display = open ? 'grid' : 'none';
+    this.$sysBtn.style.background = open ? '#e8f0fe' : 'transparent';
+    // The explicit set above supersedes any in-flight hover tint.
+    delete this.$sysBtn.dataset.hoverTint;
   }
 
   public destroy() {
@@ -519,6 +604,100 @@ export class Whiteboard {
     });
 
     stale.forEach(id => this.world.removeEntity(id));
+  }
+
+  /**
+   * Deletes every selected shape. Lines attached to a deleted shape stay on
+   * the board - their dangling pins self-clean in LineAttachmentSystem next
+   * frame. Records exactly one undo step (a key press has no release edge
+   * for HistorySystem to see). No-op mid-gesture: deleting the shape under
+   * an active drag/draw/resize would fight the gesture.
+   */
+  public deleteSelection(): void {
+    if (!this.canApplyHistory()) return;
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    if (!selection || selection.entities.size === 0) return;
+    const ids = new Set(selection.entities.keys());
+    selection.clear();
+    ids.forEach(id => this.world.removeEntity(id));
+
+    // Detach surviving lines from the deleted shapes NOW, not next frame in
+    // LineAttachmentSystem: the history snapshot below must not contain the
+    // dangling refs, or it differs from the next release-edge snapshot by
+    // exactly that cleanup (a dead undo step).
+    for (const entity of [...this.shapesQuery.execute().values()]) {
+      if (!entity.hasComponent(LineAttachmentComponent)) continue;
+      const att = entity.getComponent(LineAttachmentComponent);
+      if (att.start && ids.has(att.start.entityId)) att.start = null;
+      if (att.end && ids.has(att.end.entityId)) att.end = null;
+      if (att.start === null && att.end === null) {
+        entity.removeComponent(LineAttachmentComponent);
+      }
+    }
+
+    this.recordHistory();
+  }
+
+  /**
+   * Duplicates every selected shape with a fresh id, offset by a constant
+   * screen distance (world offset divided by zoom, so it's visible at any
+   * scale). Line attachments are NOT copied: LineAttachmentSystem would
+   * re-pin the copy onto the same connection points next frame, undoing the
+   * offset. The selection moves to the duplicates, so repeated Cmd+D chains.
+   * One undo step (a key press has no release edge for HistorySystem).
+   */
+  public duplicateSelection(): void {
+    if (!this.canApplyHistory()) return;
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    if (!selection || selection.entities.size === 0) return;
+
+    const offset = DUPLICATE_OFFSET / this.camera.scale;
+    const duplicates: Entity[] = [];
+
+    for (const source of selection.entities.values()) {
+      const copy = this.world.createEntity(`duplicate-${Date.now()}-${this.duplicateCounter++}`);
+      copy.addComponent(IsRendered);
+      if (source.hasComponent(RectangleComponent)) {
+        const comp = source.getComponent(RectangleComponent);
+        copy.addComponent(RectangleComponent, {
+          x: comp.x + offset, y: comp.y + offset,
+          width: comp.width, height: comp.height,
+          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+        });
+      } else if (source.hasComponent(CircleComponent)) {
+        const comp = source.getComponent(CircleComponent);
+        copy.addComponent(CircleComponent, {
+          x: comp.x + offset, y: comp.y + offset,
+          radius: comp.radius,
+          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+        });
+      } else if (source.hasComponent(LineComponent)) {
+        const comp = source.getComponent(LineComponent);
+        copy.addComponent(LineComponent, {
+          x1: comp.x1 + offset, y1: comp.y1 + offset,
+          x2: comp.x2 + offset, y2: comp.y2 + offset,
+          strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+        });
+      } else {
+        this.world.removeEntity(copy.id);
+        continue;
+      }
+      if (source.hasComponent(TextComponent)) {
+        const text = source.getComponent(TextComponent);
+        copy.addComponent(TextComponent, {
+          content: text.content, fontSize: text.fontSize,
+          fontFamily: text.fontFamily, color: text.color
+        });
+      }
+      duplicates.push(copy);
+    }
+
+    if (duplicates.length === 0) return;
+
+    selection.clear();
+    duplicates.forEach(copy => selection.addEntity(copy));
+
+    this.recordHistory();
   }
 
   public recordHistory(): void {

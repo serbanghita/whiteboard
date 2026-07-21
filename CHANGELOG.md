@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Menu hover feedback: every floating-menu and SYS-panel button tints light grey (#f0f0f0) while
+  hovered. The active-tool and open-SYS highlights are preserved (only the hover tint is reset on
+  mouse-out); disabled undo/redo buttons don't react.
+- System-design shapes: a blue SYS button on the floating menu toggles a 2-column grid panel to
+  its right listing 17 primitives by full name, in importance order (Client, Server, Database, Cache, Load
+  Balancer, Gateway, Queue, CDN, Object Storage, Worker, Stream/Pub-Sub, External API, Search
+  Index, DNS, Monitoring, Scheduler/Cron, Auth/Identity), all defined in a single
+  `src/systemDesign.ts` registry. Each tool draws a rectangle stamped with the primitive's name
+  as regular shape text (editable, serialized, undoable). Replaces the six inline SRV/DB/CCH/
+  QUE/LB/GW menu buttons.
+- Cmd/Ctrl+D duplicates the selected shapes (`Whiteboard.duplicateSelection()`), offset by a
+  constant 16 screen pixels (converted to world units at the current zoom) so the copy never
+  hides the original. The copy keeps the shape's text; line attachments are not copied (the
+  duplicate is a free line). The selection moves to the copy, so repeated Cmd+D chains. Exactly
+  one undo step per duplicate; no-op mid-gesture or while the text editor is open.
+- Delete/Backspace removes the selected shapes (`Whiteboard.deleteSelection()`). Lines attached
+  to a deleted shape survive and are detached in the same step; the deletion is exactly one
+  undo step. No-op mid-gesture (mouse held, draw in progress, or text editor open).
 - Text inside shapes: double-click a rectangle or circle (cursor tool) to type into it. Text wraps
   inside a padded interior box (rect inset by 8 world units; circle uses its inscribed square),
   is centered both ways, and clips lines that don't fit vertically. Editing happens in a

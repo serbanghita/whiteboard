@@ -21,6 +21,7 @@ import CameraComponent from "../component/CameraComponent";
 import TextComponent from "../component/TextComponent";
 import { applyWheel, screenToWorld, worldToScreen } from "../camera";
 import { setMeasurer } from "../textLayout";
+import { SYSTEM_DESIGN_TOOLS } from "../systemDesign";
 
 let world: World;
 let cursor: Entity;
@@ -1463,5 +1464,351 @@ describe("text editing", () => {
     // The commit landed in history and was then undone - text gone, shape intact.
     expect(world.getEntity(entity.id)!.hasComponent(TextComponent)).toBe(false);
     expect(world.getEntity(entity.id)).toBeDefined();
+  });
+});
+
+// All scenes use x >= 3000, clear of shapes left behind by earlier suites.
+describe("deleting shapes", () => {
+  function selectAt(x: number, y: number) {
+    setTool("cursor");
+    press(x, y);
+    frame();
+    release();
+    frame();
+  }
+
+  function pressKey(key: string) {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key, cancelable: true }));
+  }
+
+  it("Delete removes the selected shape and clears the selection", () => {
+    const entity = drawRectangle(3000, 100, 3100, 200);
+    expect(selectionComp().hasEntity(entity)).toBe(true); // auto-selected
+
+    pressKey("Delete");
+    frame();
+    expect(world.getEntity(entity.id)).toBeUndefined();
+    expect(selectionComp().entities.size).toBe(0);
+  });
+
+  it("Backspace deletes too, and undo restores the shape with its id", () => {
+    const entity = drawRectangle(3000, 300, 3100, 400);
+    const id = entity.id;
+
+    pressKey("Backspace");
+    frame();
+    expect(world.getEntity(id)).toBeUndefined();
+
+    whiteboard.undo();
+    frame();
+    const rect = world.getEntity(id)!.getComponent(RectangleComponent);
+    expect(rect.x).toBe(3000);
+    expect(rect.width).toBe(100);
+  });
+
+  it("is a no-op with nothing selected", () => {
+    selectAt(3500, 3500); // empty click clears the selection
+    const before = whiteboard.saveShapes();
+    pressKey("Delete");
+    frame();
+    expect(whiteboard.saveShapes()).toBe(before);
+  });
+
+  it("is a no-op while the mouse button is held", () => {
+    const entity = drawRectangle(3000, 500, 3100, 600);
+    press(3050, 550);
+    frame();
+    pressKey("Delete");
+    expect(world.getEntity(entity.id)).toBeDefined();
+    release();
+    frame();
+    pressKey("Delete");
+    frame();
+    expect(world.getEntity(entity.id)).toBeUndefined();
+  });
+
+  it("detaches (but keeps) a line attached to the deleted shape, in the same snapshot", () => {
+    const a = drawRectangle(3000, 700, 3100, 800);
+    const b = drawRectangle(3200, 700, 3300, 800);
+    selectAt(3050, 750); // drawing B stole the selection; re-select A
+    expect(selectionComp().hasEntity(a)).toBe(true);
+
+    // Connect A's east handle to B's west point.
+    press(3100, 750);
+    frame();
+    moveTo(3195, 750);
+    frame();
+    release();
+    frame();
+    const lineIds = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(lineIds[lineIds.length - 1])!;
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: b.id, handleId: "w" });
+
+    selectAt(3250, 750);
+    expect(selectionComp().hasEntity(b)).toBe(true);
+    pressKey("Delete");
+
+    // B is gone, the line survives, and its dangling end was pruned before
+    // the history snapshot (no dead undo step from next-frame cleanup).
+    expect(world.getEntity(b.id)).toBeUndefined();
+    expect(world.getEntity(lineEntity.id)).toBeDefined();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end).toBeNull();
+    const snapshot = whiteboard.saveShapes();
+    frame();
+    expect(whiteboard.saveShapes()).toBe(snapshot);
+
+    // Undo restores B and the attachment.
+    whiteboard.undo();
+    frame();
+    expect(world.getEntity(b.id)).toBeDefined();
+    expect(world.getEntity(lineEntity.id)!.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: b.id, handleId: "w" });
+  });
+});
+
+describe("duplicating shapes", () => {
+  function selectAt(x: number, y: number) {
+    setTool("cursor");
+    press(x, y);
+    frame();
+    release();
+    frame();
+  }
+
+  function pressCmdD() {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "d", metaKey: true, cancelable: true }));
+  }
+
+  it("Cmd+D copies the selected rectangle at a 16px offset and selects the copy", () => {
+    const original = drawRectangle(4000, 100, 4100, 200);
+    expect(selectionComp().hasEntity(original)).toBe(true);
+    const orig = original.getComponent(RectangleComponent);
+    const { x: origX, y: origY } = orig;
+
+    pressCmdD();
+    frame();
+
+    const copyIds = entityIdsByPrefix("duplicate-");
+    expect(copyIds).toHaveLength(1);
+    const copy = world.getEntity(copyIds[0])!;
+    const rect = copy.getComponent(RectangleComponent);
+    expect(rect.x).toBe(origX + 16);
+    expect(rect.y).toBe(origY + 16);
+    expect(rect.width).toBe(100);
+    expect(rect.height).toBe(100);
+
+    // Original untouched, selection moved to the copy.
+    expect(orig.x).toBe(origX);
+    expect(orig.y).toBe(origY);
+    expect(selectionComp().hasEntity(copy)).toBe(true);
+    expect(selectionComp().hasEntity(original)).toBe(false);
+  });
+
+  it("repeated Cmd+D chains off the previous copy", () => {
+    const copyIdsBefore = entityIdsByPrefix("duplicate-");
+    const first = world.getEntity(copyIdsBefore[copyIdsBefore.length - 1])!.getComponent(RectangleComponent);
+    const { x: firstX, y: firstY } = first;
+
+    pressCmdD();
+    frame();
+    const copyIds = entityIdsByPrefix("duplicate-");
+    expect(copyIds).toHaveLength(2);
+    const second = world.getEntity(copyIds[copyIds.length - 1])!.getComponent(RectangleComponent);
+    expect(second.x).toBe(firstX + 16);
+    expect(second.y).toBe(firstY + 16);
+  });
+
+  it("undo removes the duplicate in one step", () => {
+    const before = entityIdsByPrefix("duplicate-").length;
+    const shape = drawRectangle(4000, 300, 4100, 400);
+    pressCmdD();
+    frame();
+    expect(entityIdsByPrefix("duplicate-")).toHaveLength(before + 1);
+
+    whiteboard.undo();
+    frame();
+    expect(entityIdsByPrefix("duplicate-")).toHaveLength(before);
+    expect(world.getEntity(shape.id)).toBeDefined();
+  });
+
+  it("copies the shape's text", () => {
+    const shape = drawRectangle(4000, 500, 4100, 600);
+    shape.addComponent(TextComponent, {
+      content: "hello", fontSize: 16, fontFamily: "sans-serif", color: "black",
+    });
+
+    pressCmdD();
+    frame();
+    const copyIds = entityIdsByPrefix("duplicate-");
+    const copy = world.getEntity(copyIds[copyIds.length - 1])!;
+    expect(copy.getComponent(TextComponent).content).toBe("hello");
+  });
+
+  it("duplicating an attached line copies the geometry but not the attachment", () => {
+    const a = drawRectangle(4000, 700, 4100, 800);
+    const b = drawRectangle(4200, 700, 4300, 800);
+    selectAt(4050, 750); // re-select A (drawing B stole the selection)
+    expect(selectionComp().hasEntity(a)).toBe(true);
+
+    // Connect A's east handle to B's west point.
+    press(4100, 750);
+    frame();
+    moveTo(4195, 750);
+    frame();
+    release();
+    frame();
+    const lineIds = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(lineIds[lineIds.length - 1])!;
+    expect(lineEntity.hasComponent(LineAttachmentComponent)).toBe(true);
+
+    // Select the line's body and duplicate it.
+    selectAt(4150, 750);
+    expect(selectionComp().hasEntity(lineEntity)).toBe(true);
+    pressCmdD();
+    frame();
+
+    const copyIds = entityIdsByPrefix("duplicate-");
+    const copy = world.getEntity(copyIds[copyIds.length - 1])!;
+    const line = copy.getComponent(LineComponent);
+    const sourceLine = lineEntity.getComponent(LineComponent);
+    expect(line.x1).toBe(sourceLine.x1 + 16);
+    expect(line.y1).toBe(sourceLine.y1 + 16);
+    expect(line.x2).toBe(sourceLine.x2 + 16);
+    expect(line.y2).toBe(sourceLine.y2 + 16);
+    expect(copy.hasComponent(LineAttachmentComponent)).toBe(false);
+
+    // The copy must stay put next frame (nothing re-pins it).
+    frame();
+    expect(line.x1).toBe(sourceLine.x1 + 16);
+  });
+
+  it("is a no-op with nothing selected", () => {
+    selectAt(4500, 4500); // empty click clears the selection
+    const before = whiteboard.saveShapes();
+    pressCmdD();
+    frame();
+    expect(whiteboard.saveShapes()).toBe(before);
+  });
+});
+
+// All scenes use x >= 5000, clear of shapes left behind by earlier suites.
+describe("system design tools", () => {
+  function sysPanel(): HTMLDivElement {
+    return document.querySelector(".sys-design-panel")!;
+  }
+
+  function clickSysToggle() {
+    const button = document.querySelector('[data-action="toggle-sys"]') as HTMLButtonElement;
+    button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  }
+
+  it("shows one button per registry entry, in importance order, hidden until SYS is pressed", () => {
+    expect(sysPanel().style.display).toBe("none");
+
+    clickSysToggle();
+    expect(sysPanel().style.display).toBe("grid");
+    const tools = [...sysPanel().querySelectorAll("[data-tool]")]
+      .map(btn => (btn as HTMLElement).dataset.tool);
+    expect(tools).toEqual(SYSTEM_DESIGN_TOOLS.map(t => t.id));
+
+    clickSysToggle();
+    expect(sysPanel().style.display).toBe("none");
+  });
+
+  it("drawing with a system design tool creates a rectangle labeled with the tool's name", () => {
+    clickMenuTool("client");
+    press(5000, 100);
+    frame();
+    moveTo(5100, 180);
+    frame();
+    release();
+    frame();
+
+    const ids = entityIdsByPrefix("rectangle-");
+    const entity = world.getEntity(ids[ids.length - 1])!;
+    const rect = entity.getComponent(RectangleComponent);
+    expect(rect.x).toBe(5000);
+    expect(rect.width).toBe(100);
+    expect(entity.getComponent(TextComponent).content).toBe("Client");
+    // Auto-reverts to cursor with the fresh shape selected, like any draw.
+    expect(toolStateComp().currentTool).toBe("cursor");
+    expect(selectionComp().hasEntity(entity)).toBe(true);
+  });
+
+  it("every registered tool stamps its own label", () => {
+    SYSTEM_DESIGN_TOOLS.forEach((tool, i) => {
+      clickMenuTool(tool.id);
+      const x = 5000 + i * 200;
+      press(x, 300);
+      frame();
+      moveTo(x + 100, 380);
+      frame();
+      release();
+      frame();
+      const ids = entityIdsByPrefix("rectangle-");
+      const entity = world.getEntity(ids[ids.length - 1])!;
+      expect(entity.getComponent(TextComponent).content).toBe(tool.label);
+    });
+  });
+
+  it("the plain rectangle tool still draws without a label", () => {
+    const entity = drawRectangle(5000, 500, 5100, 600);
+    expect(entity.hasComponent(TextComponent)).toBe(false);
+  });
+});
+
+describe("menu hover feedback", () => {
+  function over(el: Element) {
+    el.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+  }
+  function out(el: Element) {
+    el.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
+  }
+  function menuButton(tool: string): HTMLButtonElement {
+    return document.querySelector(`[data-tool="${tool}"]`)!;
+  }
+
+  it("tints a resting button light grey on mouseover and clears it on mouseout", () => {
+    const btn = menuButton("circle");
+    expect(btn.style.background).toBe("transparent");
+
+    over(btn);
+    expect(btn.style.background).not.toBe("transparent");
+
+    out(btn);
+    expect(btn.style.background).toBe("transparent");
+  });
+
+  it("SYS panel buttons get the hover tint too", () => {
+    const btn = menuButton("client");
+    over(btn);
+    expect(btn.style.background).not.toBe("transparent");
+    out(btn);
+    expect(btn.style.background).toBe("transparent");
+  });
+
+  it("leaves the active tool's highlight alone", () => {
+    clickMenuTool("rectangle");
+    const btn = menuButton("rectangle");
+    const activeBg = btn.style.background;
+    expect(activeBg).not.toBe("transparent");
+
+    over(btn);
+    expect(btn.style.background).toBe(activeBg);
+    out(btn);
+    expect(btn.style.background).toBe(activeBg);
+
+    clickMenuTool("cursor"); // restore for any later suite
+  });
+
+  it("clicking a hovered button keeps its active highlight after mouseout", () => {
+    const btn = menuButton("line");
+    over(btn);
+    clickMenuTool("line"); // click while still hovered
+    out(btn);
+    expect(btn.style.background).not.toBe("transparent"); // still the active tint
+
+    clickMenuTool("cursor");
   });
 });

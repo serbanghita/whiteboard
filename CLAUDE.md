@@ -50,6 +50,9 @@ src/
 ├── handles.ts                  # Handle geometry: selection handles + connection points
 │                               #   (getConnectionPoints / connectionPointNear for snap targets)
 ├── autoSelect.ts               # Post-draw auto-switch to cursor tool with fresh shape selected
+├── systemDesign.ts             # SYSTEM_DESIGN_TOOLS registry (17 primitives, importance order):
+│                               #   single source of truth for the ToolType union, the SYS panel
+│                               #   buttons and the label stamped on drawn shapes
 ├── renderer/                   # WebGL renderer (IRenderer, WebGLRenderer, shaders, colorUtils)
 ├── __mocks__/webgl.ts          # Mock WebGL context for headless tests
 ├── __tests__/app.smoke.test.ts # Boots the real app in jsdom, drives tools frame-by-frame
@@ -65,7 +68,8 @@ src/
 │   ├── CameraComponent.ts      # x, y (world coords of viewport top-left), scale (zoom)
 │   ├── TextComponent.ts        # content, fontSize (world units), fontFamily, color - only on shapes
 │   │                           #   that have text; removed on empty commit
-│   ├── ToolStateComponent.ts   # currentTool (cursor|rectangle|circle|line), drawState, preview id;
+│   ├── ToolStateComponent.ts   # currentTool (cursor|rectangle|circle|line|<system-design id>),
+│   │                           #   drawState, preview id;
 │   │                           #   class fields editingEntityId + suppressedPressCount (text editing,
 │   │                           #   NOT touched by reset())
 │   ├── SelectionRectangleComponent.ts  # Selected entities map + isDirty + claim flags + connectionSnap
@@ -73,7 +77,9 @@ src/
 │   └── Is*.ts                  # Tag components (IsRendered, IsMouseOver, IsMousePressed, IsSelected)
 └── system/
     ├── ToolStateSystem.ts      # Tool-mode housekeeping
-    ├── RectangleDrawSystem.ts  # Press-drag-release rectangle drawing (min size 5)
+    ├── RectangleDrawSystem.ts  # Press-drag-release rectangle drawing (min size 5); also handles
+    │                           #   every system-design tool (same flow + stamps the registry's
+    │                           #   label as a TextComponent on the finished rect)
     ├── CircleDrawSystem.ts     # Press-drag-release circle drawing (fits bounding box, min r 3)
     ├── LineDrawSystem.ts       # Two-click line drawing (min length 5)
     ├── ResizeSystem.ts         # Resize selected shape via handle drag (runs BEFORE MousePress/Drag,
@@ -144,12 +150,20 @@ All input handlers live in `Whiteboard.bindEvents`:
 4. `wheel` (canvas, `passive: false` + `preventDefault`) → `applyWheel`: ctrl/cmd+wheel (= trackpad pinch) zooms at the cursor (world point under cursor stays fixed, clamped 0.1–8), plain wheel pans; afterwards the mouse world position is re-derived from `screenX/screenY` so mid-gesture zooms don't go stale
 5. `dblclick` (canvas) → `MouseComponent.doubleClick(worldX, worldY)` (event-time counter, same
    idiom as press) — consumed by TextEditSystem to open the text editor
-6. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`)
+6. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`); the blue **SYS** button (`data-action="toggle-sys"`) instead toggles the system-design grid panel flying out to the right of the menu (panel buttons are `data-tool` too, so the same delegation handles them — the panel stays open across tool picks). Delegated mouseover/mouseout on the menu tint resting buttons light grey (`hoverTint` dataset flag; only the tint is ever reset, so the active-tool/open-SYS highlights survive — any explicit background set deletes the flag)
 7. Escape → cancels in-progress drawing (removes preview entity)
 8. Cmd/Ctrl+Z → undo; Cmd/Ctrl+Shift+Z or Ctrl+Y → redo (gated on `isActive` like Escape,
    `preventDefault` blocks native undo; no-ops while the button is held or a draw is mid-gesture)
-9. **While a text edit is open** (`ToolStateComponent.editingEntityId` set): the document keydown
-   handler skips both the Escape and undo/redo branches (the textarea owns the keyboard — its own
+9. Delete/Backspace → `deleteSelection()`: removes all selected shapes, synchronously detaches
+   surviving attached lines (so the history snapshot matches next-frame state), records one undo
+   step via `recordHistory()` (a key press has no release edge). Gated on `canApplyHistory()`
+10. Cmd/Ctrl+D → `duplicateSelection()`: copies selected shapes at a 16-screen-px offset
+   (÷ camera scale), text included, line attachments dropped (LineAttachmentSystem would re-pin
+   the copy onto the original's points, undoing the offset); selection moves to the copies so
+   repeated presses chain; one undo step. Gated on `canApplyHistory()`; `preventDefault` blocks
+   the browser bookmark dialog
+11. **While a text edit is open** (`ToolStateComponent.editingEntityId` set): the document keydown
+   handler skips all keyboard shortcuts including delete (the textarea owns the keyboard — its own
    keydown listener also stops propagation as the belt); wheel and container-resize **commit the
    edit first** by blurring the textarea (the blur handler IS the commit), then proceed;
    `canApplyHistory()` refuses so undo can't mutate the entity under the open editor
@@ -202,6 +216,15 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   Escape commits produce no release edge for HistorySystem to see). fontSize is **world units**
   (text zooms with the world); the layout measurer is injectable (`setMeasurer`) because jsdom
   has no `measureText`
+- **System-design shapes** (`src/systemDesign.ts` registry + SYS menu panel): 17 primitives in
+  importance order (Client, Server, Database, Cache, Load Balancer, Gateway, Queue, CDN, Object
+  Storage, Worker, Stream/Pub-Sub, External API, Search Index, DNS, Monitoring, Scheduler/Cron,
+  Auth/Identity). The blue SYS button on the left menu toggles a 2-column grid panel to its right
+  showing each primitive's full name (styled like the menu; hidden again on a second SYS press).
+  Each tool is a rectangle-tool
+  variant: RectangleDrawSystem draws the rect and stamps the registry's label as a centered
+  TextComponent, then auto-reverts to cursor like any draw. The label is ordinary shape text
+  (editable via double-click, serialized, duplicated, undoable)
 - Hovering has **no visual effect** — IsMouseOver tags are still maintained (cursor mode only) for
   future cursor feedback, but RenderSystem ignores them
 - **Zoom + pan camera** (`camera` entity, `src/camera.ts`): pinch / ctrl/cmd+wheel zooms toward the

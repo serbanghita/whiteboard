@@ -1,6 +1,7 @@
 import { Component } from "@serbanghita-gamedev/ecs";
+import { SystemDesignToolId } from "../systemDesign";
 
-export type ToolType = "cursor" | "rectangle" | "circle" | "line";
+export type ToolType = "cursor" | "rectangle" | "circle" | "line" | SystemDesignToolId;
 export type DrawState = "IDLE" | "FIRST_POINT_SET";
 
 export interface ToolStateComponentProps {

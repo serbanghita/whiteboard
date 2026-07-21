@@ -1541,6 +1541,33 @@
     }
   };
 
+  // src/systemDesign.ts
+  var SYSTEM_DESIGN_TOOLS = [
+    { id: "client", title: "Client", label: "Client" },
+    { id: "server", title: "Server", label: "Server" },
+    { id: "db", title: "Database", label: "DB" },
+    { id: "cache", title: "Cache", label: "Cache" },
+    { id: "lb", title: "Load Balancer", label: "LB" },
+    { id: "gw", title: "Gateway", label: "GW" },
+    { id: "queue", title: "Queue", label: "Queue" },
+    { id: "cdn", title: "CDN", label: "CDN" },
+    { id: "objstore", title: "Object Storage", label: "Object Store" },
+    { id: "worker", title: "Worker", label: "Worker" },
+    { id: "stream", title: "Stream / Pub-Sub", label: "Stream" },
+    { id: "extapi", title: "External API", label: "External API" },
+    { id: "search", title: "Search Index", label: "Search" },
+    { id: "dns", title: "DNS", label: "DNS" },
+    { id: "monitor", title: "Monitoring", label: "Monitoring" },
+    { id: "cron", title: "Scheduler / Cron", label: "Cron" },
+    { id: "auth", title: "Auth / Identity", label: "Auth" }
+  ];
+  function isSystemDesignTool(tool) {
+    return SYSTEM_DESIGN_TOOLS.some((t) => t.id === tool);
+  }
+  function systemDesignLabel(tool) {
+    return SYSTEM_DESIGN_TOOLS.find((t) => t.id === tool)?.label;
+  }
+
   // src/collision.ts
   function pointInRectangle(px, py, rx, ry, rw, rh) {
     return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
@@ -2543,7 +2570,7 @@
       const releaseEdge = mouseComp.releaseCount > this.lastReleaseCount;
       this.lastPressCount = mouseComp.pressCount;
       this.lastReleaseCount = mouseComp.releaseCount;
-      if (toolState.currentTool !== "rectangle") return;
+      if (toolState.currentTool !== "rectangle" && !isSystemDesignTool(toolState.currentTool)) return;
       if (toolState.drawState === "IDLE") {
         if (pressEdge) {
           toolState.drawState = "FIRST_POINT_SET";
@@ -2586,6 +2613,15 @@
                 console.log("Rectangle cancelled: too small");
               } else {
                 console.log(`Rectangle created: ${toolState.previewEntityId}`);
+                const label = systemDesignLabel(toolState.currentTool);
+                if (label) {
+                  previewEntity.addComponent(TextComponent, {
+                    content: label,
+                    fontSize: 16,
+                    fontFamily: "sans-serif",
+                    color: "black"
+                  });
+                }
                 autoSelectFreshShape(this.world, previewEntity);
               }
             }
@@ -2959,6 +2995,7 @@
   };
 
   // src/Whiteboard.ts
+  var DUPLICATE_OFFSET = 16;
   var Whiteboard = class _Whiteboard {
     world;
     renderer;
@@ -2977,7 +3014,10 @@
     history;
     $undoBtn;
     $redoBtn;
+    $sysBtn;
+    $sysPanel;
     loadedShapeCounter = 0;
+    duplicateCounter = 0;
     constructor(container) {
       this.container = container;
       this.world = new World();
@@ -3001,6 +3041,10 @@
       menu.style.flexDirection = "column";
       menu.style.gap = "4px";
       menu.style.zIndex = "1000";
+      const sysButtons = SYSTEM_DESIGN_TOOLS.map((t) => `
+            <button data-tool="${t.id}" title="${t.title}" style="width:100%;box-sizing:border-box;height:32px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px;white-space:nowrap;">
+                <span style="font-size:11px;font-family:sans-serif;font-weight:bold;color:#333;">${t.title}</span>
+            </button>`).join("");
       menu.innerHTML = `
         <button data-tool="cursor" class="active" title="Select (V)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
@@ -3015,6 +3059,12 @@
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><line x1="5" y1="19" x2="19" y2="5"/></svg>
         </button>
         <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
+        <button data-action="toggle-sys" title="System Design shapes" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:12px;font-family:sans-serif;font-weight:bold;color:#1a73e8;">SYS</span>
+        </button>
+        <div class="sys-design-panel">${sysButtons}
+        </div>
+        <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
         <button data-action="undo" title="Undo (Cmd+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
         </button>
@@ -3024,6 +3074,19 @@
     `;
       this.$undoBtn = menu.querySelector('[data-action="undo"]');
       this.$redoBtn = menu.querySelector('[data-action="redo"]');
+      this.$sysBtn = menu.querySelector('[data-action="toggle-sys"]');
+      this.$sysPanel = menu.querySelector(".sys-design-panel");
+      this.$sysPanel.style.display = "none";
+      this.$sysPanel.style.position = "absolute";
+      this.$sysPanel.style.left = "calc(100% + 8px)";
+      this.$sysPanel.style.top = "0";
+      this.$sysPanel.style.background = "white";
+      this.$sysPanel.style.borderRadius = "8px";
+      this.$sysPanel.style.boxShadow = "2px 4px 8px rgba(0, 0, 0, 0.15)";
+      this.$sysPanel.style.padding = "8px";
+      this.$sysPanel.style.gridTemplateColumns = "repeat(2, 132px)";
+      this.$sysPanel.style.gap = "4px";
+      this.$sysPanel.style.zIndex = "1000";
       this.$wrapper.appendChild(menu);
       this.$canvas = document.createElement("canvas");
       this.$canvas.style.display = "block";
@@ -3175,13 +3238,17 @@
         if (actionButton) {
           if (actionButton.dataset.action === "undo") this.undo();
           else if (actionButton.dataset.action === "redo") this.redo();
+          else if (actionButton.dataset.action === "toggle-sys") this.toggleSysPanel();
           return;
         }
         const button = e.target.closest("[data-tool]");
         if (!button) return;
         const toolName = button.dataset.tool;
         if (!toolName) return;
-        menu.querySelectorAll("[data-tool]").forEach((btn) => btn.style.background = "transparent");
+        menu.querySelectorAll("[data-tool]").forEach((btn) => {
+          btn.style.background = "transparent";
+          delete btn.dataset.hoverTint;
+        });
         button.style.background = "#e0e0e0";
         const toolEntity = this.world.getEntity("tool");
         if (toolEntity) {
@@ -3192,6 +3259,20 @@
           toolState.currentTool = toolName;
           toolState.reset();
         }
+      });
+      menu.addEventListener("mouseover", (e) => {
+        const button = e.target.closest("button");
+        if (!button || button.disabled) return;
+        if (button.style.background !== "transparent") return;
+        button.style.background = "#f0f0f0";
+        button.dataset.hoverTint = "1";
+      });
+      menu.addEventListener("mouseout", (e) => {
+        const button = e.target.closest("button");
+        if (!button || !button.dataset.hoverTint) return;
+        if (e.relatedTarget instanceof Node && button.contains(e.relatedTarget)) return;
+        delete button.dataset.hoverTint;
+        button.style.background = "transparent";
       });
       this.boundKeydown = (e) => {
         if (!this.isActive) return;
@@ -3204,6 +3285,16 @@
           } else {
             this.undo();
           }
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && (e.key === "d" || e.key === "D")) {
+          e.preventDefault();
+          this.duplicateSelection();
+          return;
+        }
+        if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          this.deleteSelection();
           return;
         }
         if (e.key === "Escape") {
@@ -3220,6 +3311,14 @@
         }
       };
       document.addEventListener("keydown", this.boundKeydown);
+    }
+    // Shows/hides the system-design shape panel (the grid to the right of the
+    // menu). The SYS button stays tinted while the panel is open.
+    toggleSysPanel() {
+      const open = this.$sysPanel.style.display === "none";
+      this.$sysPanel.style.display = open ? "grid" : "none";
+      this.$sysBtn.style.background = open ? "#e8f0fe" : "transparent";
+      delete this.$sysBtn.dataset.hoverTint;
     }
     destroy() {
       this.resizeObserver.disconnect();
@@ -3396,6 +3495,99 @@
         }
       });
       stale.forEach((id) => this.world.removeEntity(id));
+    }
+    /**
+     * Deletes every selected shape. Lines attached to a deleted shape stay on
+     * the board - their dangling pins self-clean in LineAttachmentSystem next
+     * frame. Records exactly one undo step (a key press has no release edge
+     * for HistorySystem to see). No-op mid-gesture: deleting the shape under
+     * an active drag/draw/resize would fight the gesture.
+     */
+    deleteSelection() {
+      if (!this.canApplyHistory()) return;
+      const selection = this.world.getEntity("selection")?.getComponent(SelectionRectangleComponent);
+      if (!selection || selection.entities.size === 0) return;
+      const ids = new Set(selection.entities.keys());
+      selection.clear();
+      ids.forEach((id) => this.world.removeEntity(id));
+      for (const entity of [...this.shapesQuery.execute().values()]) {
+        if (!entity.hasComponent(LineAttachmentComponent)) continue;
+        const att = entity.getComponent(LineAttachmentComponent);
+        if (att.start && ids.has(att.start.entityId)) att.start = null;
+        if (att.end && ids.has(att.end.entityId)) att.end = null;
+        if (att.start === null && att.end === null) {
+          entity.removeComponent(LineAttachmentComponent);
+        }
+      }
+      this.recordHistory();
+    }
+    /**
+     * Duplicates every selected shape with a fresh id, offset by a constant
+     * screen distance (world offset divided by zoom, so it's visible at any
+     * scale). Line attachments are NOT copied: LineAttachmentSystem would
+     * re-pin the copy onto the same connection points next frame, undoing the
+     * offset. The selection moves to the duplicates, so repeated Cmd+D chains.
+     * One undo step (a key press has no release edge for HistorySystem).
+     */
+    duplicateSelection() {
+      if (!this.canApplyHistory()) return;
+      const selection = this.world.getEntity("selection")?.getComponent(SelectionRectangleComponent);
+      if (!selection || selection.entities.size === 0) return;
+      const offset = DUPLICATE_OFFSET / this.camera.scale;
+      const duplicates = [];
+      for (const source of selection.entities.values()) {
+        const copy = this.world.createEntity(`duplicate-${Date.now()}-${this.duplicateCounter++}`);
+        copy.addComponent(IsRendered);
+        if (source.hasComponent(RectangleComponent)) {
+          const comp = source.getComponent(RectangleComponent);
+          copy.addComponent(RectangleComponent, {
+            x: comp.x + offset,
+            y: comp.y + offset,
+            width: comp.width,
+            height: comp.height,
+            fillColor: comp.fillColor,
+            strokeColor: comp.strokeColor,
+            strokeWidth: comp.strokeWidth
+          });
+        } else if (source.hasComponent(CircleComponent)) {
+          const comp = source.getComponent(CircleComponent);
+          copy.addComponent(CircleComponent, {
+            x: comp.x + offset,
+            y: comp.y + offset,
+            radius: comp.radius,
+            fillColor: comp.fillColor,
+            strokeColor: comp.strokeColor,
+            strokeWidth: comp.strokeWidth
+          });
+        } else if (source.hasComponent(LineComponent)) {
+          const comp = source.getComponent(LineComponent);
+          copy.addComponent(LineComponent, {
+            x1: comp.x1 + offset,
+            y1: comp.y1 + offset,
+            x2: comp.x2 + offset,
+            y2: comp.y2 + offset,
+            strokeColor: comp.strokeColor,
+            strokeWidth: comp.strokeWidth
+          });
+        } else {
+          this.world.removeEntity(copy.id);
+          continue;
+        }
+        if (source.hasComponent(TextComponent)) {
+          const text = source.getComponent(TextComponent);
+          copy.addComponent(TextComponent, {
+            content: text.content,
+            fontSize: text.fontSize,
+            fontFamily: text.fontFamily,
+            color: text.color
+          });
+        }
+        duplicates.push(copy);
+      }
+      if (duplicates.length === 0) return;
+      selection.clear();
+      duplicates.forEach((copy) => selection.addEntity(copy));
+      this.recordHistory();
     }
     recordHistory() {
       this.history.pushState(this.saveShapes());

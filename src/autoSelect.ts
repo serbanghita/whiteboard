@@ -1,4 +1,5 @@
 import { Entity, World } from "@serbanghita-gamedev/ecs";
+import MouseComponent from "./component/MouseComponent";
 import SelectionRectangleComponent from "./component/SelectionRectangleComponent";
 import ToolStateComponent from "./component/ToolStateComponent";
 
@@ -14,7 +15,20 @@ export function autoSelectFreshShape(world: World, entity: Entity): void {
     return;
   }
 
-  toolEntity.getComponent(ToolStateComponent).currentTool = 'cursor';
+  const toolComp = toolEntity.getComponent(ToolStateComponent);
+  toolComp.currentTool = 'cursor';
+
+  // A draw that commits on a press edge (two-click lines) switches to the
+  // cursor tool mid-frame, BEFORE Resize/Connection/MousePress/Drag run and
+  // see that same press landing on the fresh shape's handles - ResizeSystem
+  // would claim the endpoint and snap it away. Suppress the committing press
+  // for its entire hold, the same idiom as a text-edit click-away commit.
+  // Release-edge commits (rect/circle/connection) stamp an already-released
+  // count, which no later press can match.
+  const cursorEntity = world.getEntity('cursor');
+  if (cursorEntity && cursorEntity.hasComponent(MouseComponent)) {
+    toolComp.suppressedPressCount = cursorEntity.getComponent(MouseComponent).pressCount;
+  }
 
   const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
   selectionComp.clear();

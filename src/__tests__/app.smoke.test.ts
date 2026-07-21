@@ -945,16 +945,18 @@ describe("connection snapping and attachment tracking", () => {
     const line = lineEntity.getComponent(LineComponent);
     const attachment = lineEntity.getComponent(LineAttachmentComponent);
 
-    // The fresh line is selected; grab its 'end' handle (on B's west point).
+    // The fresh line is selected; grab its 'end' handle (on B's west point)
+    // and drag to open space - (1650,900) is outside every inflated bbox in
+    // this column, so the endpoint detaches without re-snapping.
     press(1600, 750);
     frame();
-    moveTo(1650, 760);
+    moveTo(1650, 900);
     frame();
     release();
     frame();
 
     expect(line.x2).toBe(1650);
-    expect(line.y2).toBe(760);
+    expect(line.y2).toBe(900);
     expect(attachment.end).toBeNull();
     expect(attachment.start).toEqual({ entityId: a.id, handleId: "e" });
 

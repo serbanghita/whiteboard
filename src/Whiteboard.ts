@@ -242,7 +242,7 @@ export class Whiteboard {
     this.world.createSystem(RectangleDrawSystem, toolQuery);
     this.world.createSystem(CircleDrawSystem, toolQuery);
     this.world.createSystem(LineDrawSystem, toolQuery);
-    this.world.createSystem(ResizeSystem, selectionQuery);
+    this.world.createSystem(ResizeSystem, selectionQuery, connectableShapesQuery);
     this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
     // Text editing targets the same rect+circle set a connection can snap to.
     this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());

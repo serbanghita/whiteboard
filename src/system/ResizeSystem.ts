@@ -5,9 +5,9 @@ import SelectionRectangleComponent from "../component/SelectionRectangleComponen
 import RectangleComponent from "../component/RectangleComponent";
 import CircleComponent from "../component/CircleComponent";
 import LineComponent from "../component/LineComponent";
-import LineAttachmentComponent from "../component/LineAttachmentComponent";
+import LineAttachmentComponent, { ConnectionHandleId } from "../component/LineAttachmentComponent";
 import ToolStateComponent from "../component/ToolStateComponent";
-import { handleAtPoint, HandleId } from "../handles";
+import { connectionSnapTarget, handleAtPoint, HandleId } from "../handles";
 import { getCameraScale } from "../camera";
 
 const MIN_RECTANGLE_SIZE = 5;
@@ -22,12 +22,18 @@ const MIN_CIRCLE_RADIUS = 3;
  *
  * Rect/circle: the bounding-box corner opposite the grabbed handle stays
  * fixed; the shape follows the mouse (crossing the anchor flips naturally).
- * Line: the grabbed endpoint follows the mouse.
+ * Line: the grabbed endpoint follows the mouse, gluing to nearby shapes'
+ * connection points (same inflated-bbox rule as ConnectionSystem) and
+ * re-attaching on release.
  */
 export default class ResizeSystem extends System {
   private lastPressCount = 0;
   private activeHandleId: HandleId | null = null;
   private targetEntityId: string | null = null;
+  // The shape the line's OTHER end is attached to: excluded from snapping so
+  // a line can't end up with both endpoints on one shape (mirrors
+  // ConnectionSystem's source exclusion).
+  private excludeEntityId: string | null = null;
   // The fixed bounding-box corner (rect/circle resizes).
   private anchorX = 0;
   private anchorY = 0;
@@ -39,6 +45,8 @@ export default class ResizeSystem extends System {
   public constructor(
     public world: World,
     public query: Query,
+    // Rectangles/circles a dragged line endpoint can snap to.
+    public connectableQuery: Query,
   ) {
     super(world, query);
   }
@@ -70,6 +78,8 @@ export default class ResizeSystem extends System {
       return;
     }
 
+    const scale = getCameraScale(this.world);
+
     if (pressEdge) {
       // Each new press re-evaluates: a press on a handle starts a resize,
       // anywhere else ends any active one (and falls through to the other
@@ -77,7 +87,7 @@ export default class ResizeSystem extends System {
       // two frames.
       this.stop(selectionComp);
 
-      const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY, getCameraScale(this.world));
+      const handle = handleAtPoint(this.world, mouseComp.pressX, mouseComp.pressY, scale);
       const isConnectionHandle = handle && (handle.id === 'n' || handle.id === 'e' || handle.id === 's' || handle.id === 'w');
       
       if (handle && !isConnectionHandle && selectionComp.entities.size === 1) {
@@ -90,9 +100,12 @@ export default class ResizeSystem extends System {
 
         // Grabbing an attached line endpoint detaches that side only, so it
         // can follow the mouse instead of being re-pinned by
-        // LineAttachmentSystem; the other side's connection survives.
+        // LineAttachmentSystem; the other side's connection survives and its
+        // shape becomes the snap exclusion.
         if ((handle.id === 'start' || handle.id === 'end') && target.hasComponent(LineAttachmentComponent)) {
           const attachment = target.getComponent(LineAttachmentComponent);
+          this.excludeEntityId =
+            (handle.id === 'start' ? attachment.end : attachment.start)?.entityId ?? null;
           if (handle.id === 'start') {
             attachment.start = null;
           } else {
@@ -110,6 +123,7 @@ export default class ResizeSystem extends System {
     }
 
     if (!cursor.hasComponent(IsMousePressed)) {
+      this.finishEndpointDrag(selectionComp, mouseComp, scale);
       this.stop(selectionComp);
       return;
     }
@@ -124,14 +138,91 @@ export default class ResizeSystem extends System {
       return;
     }
 
-    this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+    if (this.activeHandleId === 'start' || this.activeHandleId === 'end') {
+      // A dragged endpoint glues to the snap target's nearest connection
+      // point; the grab offset only applies while unsnapped.
+      const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+      if (snap) {
+        this.applyResize(target, snap.handle.x, snap.handle.y);
+        selectionComp.connectionSnap = {
+          entityId: snap.entity.id,
+          handleId: snap.handle.id as ConnectionHandleId,
+        };
+      } else {
+        this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+        selectionComp.connectionSnap = null;
+      }
+    } else {
+      this.applyResize(target, mouseComp.x + this.grabOffsetX, mouseComp.y + this.grabOffsetY);
+    }
     selectionComp.isDirty = true;
   }
 
   private stop(selectionComp: SelectionRectangleComponent): void {
+    if (this.activeHandleId === 'start' || this.activeHandleId === 'end') {
+      // Clear the snap only when this system owned it (an endpoint drag was
+      // live) - idle-frame stop() calls must not touch ConnectionSystem's.
+      selectionComp.connectionSnap = null;
+    }
     this.activeHandleId = null;
     this.targetEntityId = null;
+    this.excludeEntityId = null;
     selectionComp.resizeHandleId = null;
+  }
+
+  private findSnap(x: number, y: number, scale: number) {
+    return connectionSnapTarget(
+      this.connectableQuery.execute().values(),
+      x,
+      y,
+      scale,
+      this.excludeEntityId,
+    );
+  }
+
+  /**
+   * On release of a line endpoint drag: if the endpoint is over a snap
+   * target, pin it there, creating the LineAttachmentComponent when the line
+   * never had one. The snap is recomputed at the release-time cursor rather
+   * than read from connectionSnap - a press+release landing between two
+   * frames reaches this point without a held frame having run. Unsnapped
+   * releases leave the endpoint where the drag put it (detach-only).
+   */
+  private finishEndpointDrag(
+    selectionComp: SelectionRectangleComponent,
+    mouseComp: MouseComponent,
+    scale: number,
+  ): void {
+    const side = this.activeHandleId;
+    if (side !== 'start' && side !== 'end') {
+      return;
+    }
+    const target = this.targetEntityId ? this.world.getEntity(this.targetEntityId) : undefined;
+    if (!target || !target.hasComponent(LineComponent)) {
+      return;
+    }
+    const snap = this.findSnap(mouseComp.x, mouseComp.y, scale);
+    if (!snap) {
+      return;
+    }
+
+    const line = target.getComponent(LineComponent);
+    if (side === 'start') {
+      line.x1 = snap.handle.x;
+      line.y1 = snap.handle.y;
+    } else {
+      line.x2 = snap.handle.x;
+      line.y2 = snap.handle.y;
+    }
+    if (!target.hasComponent(LineAttachmentComponent)) {
+      target.addComponent(LineAttachmentComponent, { start: null, end: null });
+    }
+    const attachment = target.getComponent(LineAttachmentComponent);
+    attachment[side] = {
+      entityId: snap.entity.id,
+      handleId: snap.handle.id as ConnectionHandleId,
+    };
+    selectionComp.isDirty = true;
   }
 
   private applyResize(target: Entity, x: number, y: number): void {

@@ -470,6 +470,9 @@ export class Whiteboard {
           data.fillColor = comp.fillColor;
           data.strokeColor = comp.strokeColor;
           data.strokeWidth = comp.strokeWidth;
+          // undefined (= plain rectangle) drops out of JSON.stringify,
+          // keeping pre-sysType snapshots byte-identical.
+          data.sysType = comp.sysType;
         } else if (entity.hasComponent(CircleComponent)) {
           const comp = entity.getComponent(CircleComponent);
           data.type = 'circle';
@@ -537,7 +540,8 @@ export class Whiteboard {
           entity.addComponent(RectangleComponent, {
             x: shape.x, y: shape.y,
             width: shape.width, height: shape.height,
-            fillColor: shape.fillColor, strokeColor, strokeWidth: shape.strokeWidth
+            fillColor: shape.fillColor, strokeColor, strokeWidth: shape.strokeWidth,
+            sysType: shape.sysType
           });
         } else if (shape.type === 'circle') {
           entity.addComponent(CircleComponent, {
@@ -560,6 +564,9 @@ export class Whiteboard {
           comp.width = shape.width; comp.height = shape.height;
           comp.fillColor = shape.fillColor; comp.strokeColor = strokeColor;
           comp.strokeWidth = shape.strokeWidth;
+          // Doubles as the remove-reconcile: undoing across a SYS-shape
+          // creation restores undefined.
+          comp.sysType = shape.sysType;
         } else if (shape.type === 'circle' && entity.hasComponent(CircleComponent)) {
           const comp = entity.getComponent(CircleComponent);
           comp.x = shape.x; comp.y = shape.y;

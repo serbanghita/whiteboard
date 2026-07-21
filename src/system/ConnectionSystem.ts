@@ -6,7 +6,7 @@ import LineComponent from "../component/LineComponent";
 import LineAttachmentComponent, { ConnectionHandleId } from "../component/LineAttachmentComponent";
 import IsRendered from "../component/IsRendered";
 import ToolStateComponent from "../component/ToolStateComponent";
-import { connectionPointNear, handleAtPoint } from "../handles";
+import { connectionSnapTarget, handleAtPoint } from "../handles";
 import { autoSelectFreshShape } from "../autoSelect";
 import { getCameraScale } from "../camera";
 
@@ -148,7 +148,7 @@ export default class ConnectionSystem extends System {
   }
 
   private findSnap(x: number, y: number, scale: number) {
-    return connectionPointNear(
+    return connectionSnapTarget(
       this.connectableQuery.execute().values(),
       x,
       y,
@@ -159,7 +159,15 @@ export default class ConnectionSystem extends System {
 
   private stop(selectionComp: SelectionRectangleComponent): void {
     selectionComp.connectionHandleId = null;
-    selectionComp.connectionSnap = null;
+    // Leave the snap alone while ResizeSystem owns an endpoint drag: Resize
+    // runs earlier in the frame and set connectionSnap on this very press
+    // edge; clearing it here would cost a one-frame dot flicker. Attachment
+    // correctness never depends on this - ResizeSystem recomputes at release.
+    const resizeOwnsSnap =
+      selectionComp.resizeHandleId === 'start' || selectionComp.resizeHandleId === 'end';
+    if (!resizeOwnsSnap) {
+      selectionComp.connectionSnap = null;
+    }
     this.sourceEntityId = null;
     if (this.previewEntityId) {
       // If aborted, delete line

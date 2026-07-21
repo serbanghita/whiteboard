@@ -20,8 +20,10 @@ export interface Handle {
 export const HANDLE_RADIUS = 6;
 // Slightly larger than the visual radius so handles are easy to grab.
 export const HANDLE_HIT_RADIUS = 8;
-// More forgiving than HANDLE_HIT_RADIUS: snapping a line endpoint onto a
-// connection point should attract from a distance, not require pixel aim.
+// Bbox inflation margin (screen px): a dragged line endpoint snaps to a
+// shape's nearest connection point whenever the cursor is inside the shape's
+// bounding box inflated by this margin - hovering the body is enough, no
+// pixel aim at a dot required.
 export const CONNECTION_SNAP_RADIUS = 12;
 
 /**
@@ -107,34 +109,51 @@ export function getConnectionPoints(entity: Entity): Handle[] {
 }
 
 /**
- * The nearest connection point within CONNECTION_SNAP_RADIUS (screen px,
- * divided by the camera scale) of a world-space point. Nearest wins so
- * overlapping shapes behave predictably. excludeEntityId skips the shape a
- * connection line is being drawn from (no self-loops).
+ * The connection snap target for a world-space point: the topmost shape whose
+ * bounding box, inflated by CONNECTION_SNAP_RADIUS (screen px, divided by the
+ * camera scale) on all sides, contains the point - and that shape's nearest
+ * connection point. Topmost wins (candidates are scanned in reverse query
+ * order, matching MousePressSystem's convention) so overlapping shapes behave
+ * like selection. All connection points lie on the bbox boundary, so this
+ * subsumes the old per-dot radius rule. excludeEntityId skips the shape the
+ * line's other endpoint belongs to (no self-loops).
  */
-export function connectionPointNear(
+export function connectionSnapTarget(
   candidates: Iterable<Entity>,
   x: number,
   y: number,
   scale: number,
   excludeEntityId: string | null,
 ): { entity: Entity; handle: Handle } | null {
-  const snapRadius = CONNECTION_SNAP_RADIUS / scale;
-  let best: { entity: Entity; handle: Handle } | null = null;
-  let bestDistSq = snapRadius * snapRadius;
-  for (const entity of candidates) {
+  const margin = CONNECTION_SNAP_RADIUS / scale;
+  const entities = [...candidates];
+  for (let i = entities.length - 1; i >= 0; i--) {
+    const entity = entities[i];
     if (entity.id === excludeEntityId) {
       continue;
     }
+    const bounds = getEntityBounds(entity);
+    if (!bounds) {
+      continue;
+    }
+    if (
+      x < bounds.x - margin || x > bounds.x + bounds.width + margin ||
+      y < bounds.y - margin || y > bounds.y + bounds.height + margin
+    ) {
+      continue;
+    }
+    let best: Handle | null = null;
+    let bestDistSq = Infinity;
     for (const handle of getConnectionPoints(entity)) {
       const dx = x - handle.x;
       const dy = y - handle.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq <= bestDistSq) {
-        best = { entity, handle };
+      if (distSq < bestDistSq) {
+        best = handle;
         bestDistSq = distSq;
       }
     }
+    return best ? { entity, handle: best } : null;
   }
-  return best;
+  return null;
 }

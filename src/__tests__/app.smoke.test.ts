@@ -6,7 +6,7 @@
  * ECS: press()/release() advance MouseComponent's event-time counters and
  * toggle the IsMousePressed tag; moveTo() updates the current position.
  */
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 
 import type { Entity, World } from "@serbanghita-gamedev/ecs";
 import MouseComponent from "../component/MouseComponent";
@@ -825,7 +825,7 @@ describe("connection snapping and attachment tracking", () => {
 
     press(1100, 350);
     frame();
-    moveTo(1180, 350); // 20px from B's west point (1200,350)
+    moveTo(1180, 350); // 20px from B's bbox edge - outside the inflated bbox
     frame();
 
     const ids = entityIdsByPrefix("connection-line-");
@@ -1959,5 +1959,94 @@ describe("properties panel", () => {
     expect(dup.arrowEnd).toBeUndefined();
 
     clearSelection();
+  });
+});
+
+// Inflated-bbox snapping scenes live at x >= 3000, clear of every shape left
+// behind by the earlier suites (no leftover inflated bbox reaches this range).
+describe("inflated-bbox connection snapping", () => {
+  beforeEach(() => {
+    // Earlier suites (properties panel) leave the camera panned; restore the
+    // identity camera so screen == world coordinates hold here.
+    const cam = cameraComp();
+    cam.x = 0;
+    cam.y = 0;
+    cam.scale = 1;
+  });
+
+  function selectAt(x: number, y: number) {
+    setTool("cursor");
+    press(x, y);
+    frame();
+    release();
+    frame();
+  }
+
+  it("snaps from the inflation margin, beyond the old per-dot radius", () => {
+    const a = drawRectangle(3000, 100, 3100, 200);
+    const b = drawRectangle(3200, 100, 3300, 200);
+    selectAt(3050, 150); // drawing B stole the selection; re-select A
+    expect(selectionComp().hasEntity(a)).toBe(true);
+
+    // 10px right of B's east edge: inside the 12px-inflated bbox, but
+    // ~22.4px from the nearest dot e(3300,150) - the old per-dot rule would
+    // not have snapped here.
+    press(3100, 150);
+    frame();
+    moveTo(3310, 130);
+    frame();
+
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    const line = lineEntity.getComponent(LineComponent);
+    expect(line.x2).toBe(3300);
+    expect(line.y2).toBe(150);
+    expect(selectionComp().connectionSnap).toEqual({ entityId: b.id, handleId: "e" });
+
+    release();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: b.id, handleId: "e" });
+  });
+
+  it("snaps to the nearest dot while hovering a shape's body", () => {
+    const b2 = drawRectangle(3200, 300, 3300, 400);
+    selectAt(3050, 150); // re-select A from the previous test
+    press(3100, 150);
+    frame();
+    moveTo(3290, 350); // interior of B2; nearest dot is e(3300,350) at 10px
+    frame();
+
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    const line = lineEntity.getComponent(LineComponent);
+    expect(line.x2).toBe(3300);
+    expect(line.y2).toBe(350);
+    expect(selectionComp().connectionSnap).toEqual({ entityId: b2.id, handleId: "e" });
+
+    release();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: b2.id, handleId: "e" });
+    expect(selectionComp().connectionSnap).toBeNull();
+  });
+
+  it("prefers the topmost shape when the cursor is inside two overlapping shapes", () => {
+    drawRectangle(3200, 600, 3300, 700); // R1
+    const r2 = drawRectangle(3250, 650, 3350, 750); // R2, drawn later = topmost
+    selectAt(3050, 150); // re-select A
+    press(3100, 150);
+    frame();
+    moveTo(3270, 660); // inside both rects; R2's nearest dot is n(3300,650)
+    frame();
+
+    expect(selectionComp().connectionSnap).toEqual({ entityId: r2.id, handleId: "n" });
+
+    release();
+    frame();
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: r2.id, handleId: "n" });
   });
 });

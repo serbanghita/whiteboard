@@ -8,6 +8,10 @@ export interface RectangleComponentProps {
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
+  // Original system-design tool id (e.g. 'gw') for shapes drawn from the SYS
+  // panel; absent on plain rectangles. The label text is user-editable, so
+  // this is the only durable record of the semantic type.
+  sysType?: string;
 }
 
 export default class RectangleComponent extends Component<RectangleComponentProps> {
@@ -69,6 +73,14 @@ export default class RectangleComponent extends Component<RectangleComponentProp
 
   public set strokeWidth(value: number | undefined) {
     this.properties.strokeWidth = value;
+  }
+
+  public get sysType(): string | undefined {
+    return this.properties.sysType;
+  }
+
+  public set sysType(value: string | undefined) {
+    this.properties.sysType = value;
   }
 
   // Computed properties for convenience

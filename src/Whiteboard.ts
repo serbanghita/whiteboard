@@ -807,8 +807,74 @@ export class Whiteboard {
     return JSON.stringify({ v: 2, camera: { x: cam.x, y: cam.y, scale: cam.scale }, nodes, edges });
   }
 
-  public load(json: string) {
+  /**
+   * Loads a whiteboard document in any of the three formats: v2 semantic
+   * (`{v, nodes, edges}`), v1.1 (`{version, camera, shapes}`) or v1.0 (bare
+   * legacy array). Throws on unparseable/unrecognized input - the only hard
+   * failure. v2 entries without the required finite geometry are skipped and
+   * counted, never failing the whole load (forgiving input for LLM-authored
+   * documents). `camera` is optional; when absent the current view is kept.
+   */
+  public load(json: string): { loaded: number; skipped: number } {
     const data = JSON.parse(json);
+
+    let shapes: any[];
+    let skipped = 0;
+    if (Array.isArray(data)) {
+      // v1.0: bare array (single `color` field handled inside loadShapes).
+      shapes = data;
+    } else if (data.shapes) {
+      // v1.1: {version, camera, shapes}.
+      shapes = data.shapes;
+    } else if (data.v === 2 || data.nodes || data.edges) {
+      const finite = (...values: any[]) => values.every(v => Number.isFinite(v));
+      // "entityId:handleId" -> AttachmentPoint. Invalid handles (hand-edited
+      // or LLM-authored files) drop the pin - the line loads dangling instead
+      // of feeding a bogus handleId to LineAttachmentSystem every frame.
+      const HANDLES = new Set(['n', 'e', 's', 'w']);
+      const parsePin = (ref?: string) => {
+        if (typeof ref !== 'string') return null;
+        const i = ref.lastIndexOf(':');
+        const entityId = ref.slice(0, i), handleId = ref.slice(i + 1);
+        if (!entityId || !HANDLES.has(handleId)) return null;
+        return { entityId, handleId };
+      };
+      const nodes = (data.nodes ?? []).filter((n: any) => {
+        const ok = finite(n.x, n.y) && (finite(n.r) || finite(n.w, n.h));
+        if (!ok) skipped++;
+        return ok;
+      }).map((n: any) => ({
+        id: n.id,
+        type: Number.isFinite(n.r) ? 'circle' : 'rectangle',
+        x: n.x, y: n.y, width: n.w, height: n.h, radius: n.r,
+        // Semantic types are rect-only; a circle node's non-basic type is
+        // dropped by loadShapes (CircleComponent has no sysType).
+        sysType: (n.type === 'rect' || n.type === 'circle') ? undefined : n.type,
+        fillColor: n.fill === 'none' ? undefined : (n.fill ?? 'white'),
+        strokeColor: n.stroke ?? 'black',
+        strokeWidth: n.strokeWidth,
+        text: typeof n.text === 'string'
+          ? { content: n.text, fontSize: 16, fontFamily: 'sans-serif', color: 'black' }
+          : n.text,
+      }));
+      const edges = (data.edges ?? []).filter((e: any) => {
+        const ok = finite(e.x1, e.y1, e.x2, e.y2);
+        if (!ok) skipped++;
+        return ok;
+      }).map((e: any) => {
+        const start = parsePin(e.from), end = parsePin(e.to);
+        return {
+          id: e.id, type: 'line',
+          x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2,
+          strokeColor: e.stroke ?? 'black', strokeWidth: e.strokeWidth,
+          arrowStart: e.arrowStart, arrowEnd: e.arrowEnd,
+          attachment: (start || end) ? { start, end } : undefined,
+        };
+      });
+      shapes = [...nodes, ...edges];
+    } else {
+      throw new Error('Unrecognized whiteboard file format');
+    }
 
     if (data.camera) {
       const cam = this.camera;
@@ -817,8 +883,9 @@ export class Whiteboard {
       cam.scale = data.camera.scale;
     }
 
-    this.loadShapes(JSON.stringify(data.shapes ?? []));
+    this.loadShapes(JSON.stringify(shapes));
     // A loaded file becomes an undo checkpoint.
     this.recordHistory();
+    return { loaded: shapes.length, skipped };
   }
 }

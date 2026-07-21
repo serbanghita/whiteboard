@@ -110,6 +110,9 @@ export default class RectangleDrawSystem extends System {
               // its handles show and it can be dragged right away.
               const label = systemDesignLabel(toolState.currentTool);
               if (label) {
+                // The label text is user-editable, so the tool id is the only
+                // durable record of the semantic type (read at save() time).
+                rectComp.sysType = toolState.currentTool;
                 previewEntity.addComponent(TextComponent, {
                   content: label,
                   fontSize: 16,

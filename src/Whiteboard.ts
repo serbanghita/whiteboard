@@ -680,7 +680,8 @@ export class Whiteboard {
         copy.addComponent(RectangleComponent, {
           x: comp.x + offset, y: comp.y + offset,
           width: comp.width, height: comp.height,
-          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth,
+          sysType: comp.sysType
         });
       } else if (source.hasComponent(CircleComponent)) {
         const comp = source.getComponent(CircleComponent);

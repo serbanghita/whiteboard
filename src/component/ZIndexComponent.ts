@@ -1,15 +1,17 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
-export default class ZIndexComponent extends Component {
-  public zIndex: number = 0;
+export interface ZIndexComponentProps {
+  // Server-assigned strictly-increasing draw order; shapes without the
+  // component sort as 0 (stable sort keeps their creation order).
+  zIndex: number;
+}
 
-  public init(props?: { zIndex: number }): void {
-    if (props) {
-      this.zIndex = props.zIndex;
-    }
+export default class ZIndexComponent extends Component<ZIndexComponentProps> {
+  public get zIndex(): number {
+    return this.properties.zIndex;
   }
 
-  public reset(): void {
-    this.zIndex = 0;
+  public set zIndex(value: number) {
+    this.properties.zIndex = value;
   }
 }

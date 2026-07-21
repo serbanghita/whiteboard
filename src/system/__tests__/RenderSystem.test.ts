@@ -8,6 +8,8 @@ import IsRendered from '../../component/IsRendered';
 import IsMouseOver from '../../component/IsMouseOver';
 import SelectionRectangleComponent from '../../component/SelectionRectangleComponent';
 import TextComponent from '../../component/TextComponent';
+import ZIndexComponent from '../../component/ZIndexComponent';
+import IsLockedComponent from '../../component/IsLockedComponent';
 import { IRenderer } from '../../renderer';
 
 /**
@@ -70,6 +72,8 @@ registryWorld.registerComponents([
   LineComponent,
   SelectionRectangleComponent,
   TextComponent,
+  ZIndexComponent,
+  IsLockedComponent,
 ]);
 
 describe('RenderSystem', () => {

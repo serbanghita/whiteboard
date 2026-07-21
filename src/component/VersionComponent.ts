@@ -1,13 +1,17 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
-export default class VersionComponent extends Component {
-  public version: number = 1;
+export interface VersionComponentProps {
+  // Server-authoritative revision counter. Local-only boards never carry
+  // this component; its absence means "always undoable".
+  version: number;
+}
 
-  public init(props?: { version?: number }): void {
-    this.version = props?.version ?? 1;
+export default class VersionComponent extends Component<VersionComponentProps> {
+  public get version(): number {
+    return this.properties.version;
   }
 
-  public reset(): void {
-    this.version = 1;
+  public set version(value: number) {
+    this.properties.version = value;
   }
 }

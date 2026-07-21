@@ -262,10 +262,21 @@ export class Whiteboard {
     this.world.createSystem(LineDrawSystem, toolQuery);
     this.world.createSystem(ResizeSystem, selectionQuery, connectableShapesQuery);
     this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
-    // Text editing targets the same rect+circle set a connection can snap to.
-    this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
+    // Text editing gets its own query: like connection targets it's the
+    // rect+circle set, but locked shapes must NOT be editable (a lock only
+    // scrubs the selection - double-click bypasses selection entirely).
+    const textEditableShapesQuery = this.world.createQuery("textEditableShapes", { any: [RectangleComponent, CircleComponent], none: [SelectionRectangleComponent, IsLockedComponent] });
+    this.world.createSystem(TextEditSystem, textEditableShapesQuery, this.$wrapper, () => this.recordHistory());
     this.world.createSystem(MousePressSystem, selectableShapesQuery);
-    this.world.createSystem(DragSystem, selectionQuery, (entityId: string, data: any) => this.events.emit(data));
+    this.world.createSystem(DragSystem, selectionQuery,
+      (_entityId: string, data: any) => this.events.emit(data),
+      (phase: 'started' | 'ended', entityIds: string[]) => {
+        for (const id of entityIds) {
+          this.events.emit(phase === 'started'
+            ? { type: 'shapeInteractionStarted', entityId: id }
+            : { type: 'shapeInteractionEnded', entityId: id });
+        }
+      });
     // After every system that moves/resizes shapes, before Selection/Render:
     // re-pins attached line endpoints so they follow their shapes.
     this.world.createSystem(LineAttachmentSystem, attachedLinesQuery);
@@ -315,7 +326,7 @@ export class Whiteboard {
     }
     const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
     if (selection && selection.entities.has(entityId)) {
-      selection.removeEntity(entityId);
+      selection.removeEntity(entity);
     }
   }
 
@@ -370,14 +381,6 @@ export class Whiteboard {
 
     this.$canvas.addEventListener('mousedown', (e) => {
       if (this.readOnly) return;
-      
-      // Capture pre-interaction state
-      this.preInteractionState.clear();
-      const shapes = JSON.parse(this.saveShapes());
-      for (const shape of shapes) {
-        this.preInteractionState.set(shape.id, shape);
-      }
-      
       const mouse = this.cursor.getComponent(MouseComponent);
       mouse.screenX = e.offsetX;
       mouse.screenY = e.offsetY;
@@ -661,53 +664,59 @@ export class Whiteboard {
 
     const shapes = [...this.shapesQuery.execute().values()]
       .filter(entity => entity.id !== previewId)
-      .map(entity => {
-        const data: any = { id: entity.id, type: '' };
-        if (entity.hasComponent(RectangleComponent)) {
-          const comp = entity.getComponent(RectangleComponent);
-          data.type = 'rectangle';
-          data.x = comp.x; data.y = comp.y;
-          data.width = comp.width; data.height = comp.height;
-          data.fillColor = comp.fillColor;
-          data.strokeColor = comp.strokeColor;
-          data.strokeWidth = comp.strokeWidth;
-          // undefined (= plain rectangle) drops out of JSON.stringify,
-          // keeping pre-sysType snapshots byte-identical.
-          data.sysType = comp.sysType;
-        } else if (entity.hasComponent(CircleComponent)) {
-          const comp = entity.getComponent(CircleComponent);
-          data.type = 'circle';
-          data.x = comp.x; data.y = comp.y;
-          data.radius = comp.radius;
-          data.fillColor = comp.fillColor;
-          data.strokeColor = comp.strokeColor;
-          data.strokeWidth = comp.strokeWidth;
-        } else if (entity.hasComponent(LineComponent)) {
-          const comp = entity.getComponent(LineComponent);
-          data.type = 'line';
-          data.x1 = comp.x1; data.y1 = comp.y1;
-          data.x2 = comp.x2; data.y2 = comp.y2;
-          data.strokeColor = comp.strokeColor;
-          data.strokeWidth = comp.strokeWidth;
-          // undefined (= no arrow) drops out of JSON.stringify, keeping
-          // legacy snapshots byte-identical.
-          data.arrowStart = comp.arrowStart;
-          data.arrowEnd = comp.arrowEnd;
-          if (entity.hasComponent(LineAttachmentComponent)) {
-            const att = entity.getComponent(LineAttachmentComponent);
-            data.attachment = { start: att.start, end: att.end };
-          }
-        }
-        if ((data.type === 'rectangle' || data.type === 'circle') && entity.hasComponent(TextComponent)) {
-          const text = entity.getComponent(TextComponent);
-          // Full props (not just content), so a future styling UI needs no
-          // snapshot migration. Optional field - legacy snapshots load fine.
-          data.text = { content: text.content, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color };
-        }
-        return data;
-      });
+      .map(entity => this.serializeShape(entity));
 
     return JSON.stringify(shapes);
+  }
+
+  // The single serialized form of one shape - shared by saveShapes(), the
+  // history baseline and applyShape(), so diff/dedup comparisons stay
+  // byte-stable. version/zIndex deliberately stay out (server-owned; legacy
+  // snapshots stay byte-identical).
+  private serializeShape(entity: Entity): any {
+    const data: any = { id: entity.id, type: '' };
+    if (entity.hasComponent(RectangleComponent)) {
+      const comp = entity.getComponent(RectangleComponent);
+      data.type = 'rectangle';
+      data.x = comp.x; data.y = comp.y;
+      data.width = comp.width; data.height = comp.height;
+      data.fillColor = comp.fillColor;
+      data.strokeColor = comp.strokeColor;
+      data.strokeWidth = comp.strokeWidth;
+      // undefined (= plain rectangle) drops out of JSON.stringify,
+      // keeping pre-sysType snapshots byte-identical.
+      data.sysType = comp.sysType;
+    } else if (entity.hasComponent(CircleComponent)) {
+      const comp = entity.getComponent(CircleComponent);
+      data.type = 'circle';
+      data.x = comp.x; data.y = comp.y;
+      data.radius = comp.radius;
+      data.fillColor = comp.fillColor;
+      data.strokeColor = comp.strokeColor;
+      data.strokeWidth = comp.strokeWidth;
+    } else if (entity.hasComponent(LineComponent)) {
+      const comp = entity.getComponent(LineComponent);
+      data.type = 'line';
+      data.x1 = comp.x1; data.y1 = comp.y1;
+      data.x2 = comp.x2; data.y2 = comp.y2;
+      data.strokeColor = comp.strokeColor;
+      data.strokeWidth = comp.strokeWidth;
+      // undefined (= no arrow) drops out of JSON.stringify, keeping
+      // legacy snapshots byte-identical.
+      data.arrowStart = comp.arrowStart;
+      data.arrowEnd = comp.arrowEnd;
+      if (entity.hasComponent(LineAttachmentComponent)) {
+        const att = entity.getComponent(LineAttachmentComponent);
+        data.attachment = { start: att.start, end: att.end };
+      }
+    }
+    if ((data.type === 'rectangle' || data.type === 'circle') && entity.hasComponent(TextComponent)) {
+      const text = entity.getComponent(TextComponent);
+      // Full props (not just content), so a future styling UI needs no
+      // snapshot migration. Optional field - legacy snapshots load fine.
+      data.text = { content: text.content, fontSize: text.fontSize, fontFamily: text.fontFamily, color: text.color };
+    }
+    return data;
   }
 
   /**
@@ -728,10 +737,22 @@ export class Whiteboard {
     const stale = new Set([...this.shapesQuery.execute().keys()]);
 
     shapes.forEach((shape: any) => {
+      const entity = this.upsertShape(shape);
+      if (entity) stale.delete(entity.id);
+    });
+
+    stale.forEach(id => this.world.removeEntity(id));
+  }
+
+  /**
+   * Creates-or-patches ONE shape from its serialized form, never touching
+   * any other entity. Shared by loadShapes' reconcile, the partial-apply
+   * API (remote updates) and action-based undo/redo.
+   */
+  private upsertShape(shape: any): Entity | null {
       // Legacy save files (v1.0) have no ids and use a single `color` field.
       const id: string = shape.id ?? `loaded-shape-${crypto.randomUUID()}`;
       const strokeColor = shape.strokeColor ?? shape.color;
-      stale.delete(id);
 
       let entity = this.world.getEntity(id);
       if (!entity) {
@@ -827,9 +848,78 @@ export class Whiteboard {
           entity.removeComponent(TextComponent);
         }
       }
-    });
 
-    stale.forEach(id => this.world.removeEntity(id));
+      return entity;
+  }
+
+  /**
+   * Partial apply: upsert ONE shape (remote update or undo/redo step)
+   * without loadShapes' full-board reconcile - other entities are never
+   * removed. Server-stamped `version`/`zIndex` keys become components. The
+   * history baseline entry is refreshed so a remote change never leaks into
+   * the next locally recorded action diff.
+   */
+  public applyShape(shape: any): Entity | null {
+    const entity = this.upsertShape(shape);
+    if (!entity) return null;
+
+    if (typeof shape.zIndex === 'number') {
+      if (entity.hasComponent(ZIndexComponent)) {
+        entity.getComponent(ZIndexComponent).zIndex = shape.zIndex;
+      } else {
+        entity.addComponent(ZIndexComponent, { zIndex: shape.zIndex });
+      }
+    }
+    if (typeof shape.version === 'number') {
+      if (entity.hasComponent(VersionComponent)) {
+        entity.getComponent(VersionComponent).version = shape.version;
+      } else {
+        entity.addComponent(VersionComponent, { version: shape.version });
+      }
+    }
+
+    this.preInteractionState.set(entity.id, this.serializeShape(entity));
+    return entity;
+  }
+
+  /** Partial remove: one entity + its history-baseline entry. */
+  public removeShape(entityId: string): void {
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    const entity = this.world.getEntity(entityId);
+    if (selection && entity && selection.hasEntity(entity)) {
+      selection.removeEntity(entity);
+    }
+    this.world.removeEntity(entityId);
+    this.preInteractionState.delete(entityId);
+  }
+
+  /**
+   * Re-adopts the live board as the history diff baseline. Called after a
+   * full remote state flush (init), where the change must NOT become a
+   * locally undoable action.
+   */
+  public resetHistoryBaseline(): void {
+    const baseline = new Map<string, any>();
+    for (const shape of JSON.parse(this.saveShapes())) {
+      baseline.set(shape.id, shape);
+    }
+    this.preInteractionState = baseline;
+  }
+
+  /**
+   * Removes every shape as ONE operation: emission is suppressed while the
+   * entities go away and a single boardCleared event is emitted instead of
+   * one delete per shape. Clears both history stacks' relevance by resetting
+   * the baseline (clearing the board is not locally undoable).
+   */
+  public clear(): void {
+    this.events.pause();
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    selection?.clear();
+    [...this.shapesQuery.execute().keys()].forEach(id => this.world.removeEntity(id));
+    this.preInteractionState = new Map();
+    this.events.resume();
+    this.events.emit({ type: 'boardCleared' });
   }
 
   /**
@@ -945,14 +1035,13 @@ export class Whiteboard {
       if (!preShape) {
         actions.push({ type: 'CREATE', entityId: id, componentData: postShape, version: 1 });
       } else if (JSON.stringify(preShape) !== JSON.stringify(postShape)) {
-        // Increment version on update
+        // Versions are server-authoritative: record the current one (if the
+        // shape has ever been stamped) so undo can detect remote drift.
+        // Local-only boards carry no VersionComponent and always pass.
         const entity = this.world.getEntity(id);
-        let version = 1;
-        if (entity && entity.hasComponent(VersionComponent)) {
-          const vComp = entity.getComponent(VersionComponent);
-          vComp.version++;
-          version = vComp.version;
-        }
+        const version = entity && entity.hasComponent(VersionComponent)
+          ? entity.getComponent(VersionComponent).version
+          : 1;
         actions.push({ type: 'UPDATE', entityId: id, before: preShape, after: postShape, version });
       }
     }
@@ -989,58 +1078,44 @@ export class Whiteboard {
     return entity.getComponent(VersionComponent).version === expectedVersion;
   }
 
+  // Undo/redo steps apply through the partial API (applyShape/removeShape),
+  // which also keeps the diff baseline in step - NEVER through loadShapes,
+  // whose full-board reconcile would delete every entity absent from the
+  // single-shape payload. Events are emitted so remote peers converge.
   private applyUndoAction(action: Action): void {
     if (action.type === 'CREATE') {
-      this.world.removeEntity(action.entityId);
+      this.removeShape(action.entityId);
       this.events.emit({ type: 'shapeDeleted', entityId: action.entityId });
     } else if (action.type === 'UPDATE') {
-      this.loadShapes(JSON.stringify([action.before]));
-      const entity = this.world.getEntity(action.entityId);
-      if (entity && entity.hasComponent(VersionComponent)) {
-        entity.getComponent(VersionComponent).version = action.before.version ?? 1;
-      }
+      this.applyShape(action.before);
       this.events.emit({ type: 'shapeUpdated', entityId: action.entityId, data: action.before });
     } else if (action.type === 'DELETE') {
-      this.loadShapes(JSON.stringify([action.componentData]));
-      const entity = this.world.getEntity(action.entityId);
-      if (entity && entity.hasComponent(VersionComponent)) {
-        entity.getComponent(VersionComponent).version = action.version;
-      }
+      this.applyShape(action.componentData);
       this.events.emit({ type: 'shapeCreated', entityId: action.entityId, data: action.componentData });
     }
   }
 
   private applyRedoAction(action: Action): void {
     if (action.type === 'CREATE') {
-      this.loadShapes(JSON.stringify([action.componentData]));
-      const entity = this.world.getEntity(action.entityId);
-      if (entity && !entity.hasComponent(VersionComponent)) {
-        entity.addComponent(VersionComponent, { version: 1 });
-      }
+      this.applyShape(action.componentData);
       this.events.emit({ type: 'shapeCreated', entityId: action.entityId, data: action.componentData });
     } else if (action.type === 'UPDATE') {
-      this.loadShapes(JSON.stringify([action.after]));
-      const entity = this.world.getEntity(action.entityId);
-      if (entity && entity.hasComponent(VersionComponent)) {
-        entity.getComponent(VersionComponent).version = action.version;
-      }
+      this.applyShape(action.after);
       this.events.emit({ type: 'shapeUpdated', entityId: action.entityId, data: action.after });
     } else if (action.type === 'DELETE') {
-      this.world.removeEntity(action.entityId);
+      this.removeShape(action.entityId);
       this.events.emit({ type: 'shapeDeleted', entityId: action.entityId });
     }
   }
 
   public undo(): void {
     if (!this.canApplyHistory()) return;
-    const state = this.history.undo();
-    if (state !== null) this.loadShapes(state);
+    this.history.undo();
   }
 
   public redo(): void {
     if (!this.canApplyHistory()) return;
-    const state = this.history.redo();
-    if (state !== null) this.loadShapes(state);
+    this.history.redo();
   }
 
   // Applying a snapshot mid-drag/mid-draw/mid-text-edit would fight the

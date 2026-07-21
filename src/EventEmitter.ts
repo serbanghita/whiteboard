@@ -10,7 +10,9 @@ export type WhiteboardEvent =
 
 export class EventEmitter {
   private listeners: Set<(event: WhiteboardEvent) => void> = new Set();
-  private isPaused: boolean = false;
+  // Refcounted so nested pauses compose: a remote apply's pause/resume pair
+  // inside a read-only (paused) period must not un-pause the emitter.
+  private pauseDepth: number = 0;
 
   public on(listener: (event: WhiteboardEvent) => void): () => void {
     this.listeners.add(listener);
@@ -18,7 +20,7 @@ export class EventEmitter {
   }
 
   public emit(event: WhiteboardEvent): void {
-    if (this.isPaused) return;
+    if (this.pauseDepth > 0) return;
     
     // 3. Local Singleton Blocklist
     if (
@@ -36,10 +38,10 @@ export class EventEmitter {
   }
 
   public pause(): void {
-    this.isPaused = true;
+    this.pauseDepth++;
   }
 
   public resume(): void {
-    this.isPaused = false;
+    this.pauseDepth = Math.max(0, this.pauseDepth - 1);
   }
 }

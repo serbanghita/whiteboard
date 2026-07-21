@@ -1,46 +1,85 @@
-import Whiteboard from "../Whiteboard";
+import { Whiteboard } from "../Whiteboard";
 import { WhiteboardEvent } from "../EventEmitter";
 import TargetTransformComponent from "../component/TargetTransformComponent";
 
 export interface MultiplayerConfig {
   wsUrl: string;
   jwtToken: string;
+  // WS-only is the tested default; the WebRTC ephemeral channel is an
+  // optional enhancement (its absence routes sync over the WebSocket).
+  enableWebRTC?: boolean;
   turnServers?: RTCConfiguration;
 }
 
+// Reconnect backoff bounds (exponential with jitter).
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 10_000;
+
+/**
+ * Bridges one Whiteboard instance to the multiplayer server: forwards local
+ * EventEmitter events over the wire, applies remote messages through the
+ * core's partial-apply API (never loadShapes - its reconcile would wipe the
+ * board), and drives lock/read-only state.
+ */
 export class MultiplayerPlugin {
   private ws: WebSocket | null = null;
   private rtcPeer: RTCPeerConnection | null = null;
   private rtcChannel: RTCDataChannel | null = null;
-  private isWebRTCReady: boolean = false;
+  private isWebRTCReady = false;
   private tcpFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-  
-  public userName: string = '';
-  public userColor: string = '';
+  private reconnectAttempt = 0;
+  private closedByUser = false;
+  private unsubscribe: (() => void) | null = null;
+
+  public userName = '';
+  public userColor = '';
 
   constructor(private whiteboard: Whiteboard, private config: MultiplayerConfig) {}
 
   public connect(): void {
-    // 1. Socket Preemption & JWT Auth
+    this.closedByUser = false;
     this.ws = new WebSocket(`${this.config.wsUrl}?token=${this.config.jwtToken}`);
-    
+
     this.ws.onopen = () => {
-      console.log("[Multiplayer] WebSocket connected. Critical channel open.");
-      this.initWebRTC();
+      this.reconnectAttempt = 0;
+      if (this.config.enableWebRTC) {
+        this.initWebRTC();
+      }
     };
 
-    this.ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      this.handleServerMessage(msg);
+    this.ws.onmessage = (event: MessageEvent) => {
+      try {
+        this.handleServerMessage(JSON.parse(event.data));
+      } catch {
+        // Malformed frame - drop it.
+      }
     };
 
     this.ws.onclose = () => {
-      console.log("[Multiplayer] WebSocket disconnected.");
+      // Offline safety: no optimistic edits while disconnected.
       this.whiteboard.setReadOnly(true);
+      this.scheduleReconnect();
     };
 
-    // 2. Listen to local whiteboard mutations
-    this.whiteboard.events.on((event) => this.handleLocalEvent(event));
+    if (!this.unsubscribe) {
+      this.unsubscribe = this.whiteboard.events.on((event: WhiteboardEvent) => this.handleLocalEvent(event));
+    }
+  }
+
+  public disconnect(): void {
+    this.closedByUser = true;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.ws?.close();
+    this.rtcPeer?.close();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closedByUser) return;
+    const backoff = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempt);
+    const jitter = backoff * (0.5 + Math.random() * 0.5);
+    this.reconnectAttempt++;
+    setTimeout(() => this.connect(), jitter);
   }
 
   private initWebRTC(): void {
@@ -48,33 +87,21 @@ export class MultiplayerPlugin {
     this.rtcChannel = this.rtcPeer.createDataChannel("ephemeral", { ordered: false, maxRetransmits: 0 });
 
     this.rtcChannel.onopen = () => {
-      console.log("[Multiplayer] WebRTC DataChannel open. Using UDP for ephemeral sync.");
       this.isWebRTCReady = true;
       if (this.tcpFallbackTimer) clearTimeout(this.tcpFallbackTimer);
     };
-
-    this.rtcChannel.onclose = () => {
-      this.isWebRTCReady = false;
-    };
-
-    this.rtcChannel.onmessage = (event) => {
+    this.rtcChannel.onclose = () => { this.isWebRTCReady = false; };
+    this.rtcChannel.onmessage = (event: MessageEvent) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'sync') {
-          this.handleSyncMessage(msg);
-        }
-      } catch (e) {}
+        if (msg.type === 'sync') this.handleSyncMessage(msg);
+      } catch { /* drop */ }
     };
 
-    // 3. Set 5-second TCP fallback timer
-    this.tcpFallbackTimer = setTimeout(() => {
-      if (!this.isWebRTCReady) {
-        console.warn("[Multiplayer] WebRTC DataChannel failed to open within 5 seconds. Falling back to TCP (WebSocket) for ephemeral sync.");
-        // We leave isWebRTCReady = false, routing sendEphemeral via WebSocket
-      }
-    }, 5000);
+    // If the channel doesn't open in 5s (blocked UDP), sync stays on the
+    // WebSocket - sendEphemeral routes by isWebRTCReady.
+    this.tcpFallbackTimer = setTimeout(() => { /* isWebRTCReady stays false */ }, 5000);
 
-    // SDP offer/answer stub
     this.rtcPeer.createOffer()
       .then(offer => this.rtcPeer!.setLocalDescription(offer))
       .then(() => {
@@ -83,87 +110,91 @@ export class MultiplayerPlugin {
   }
 
   private handleServerMessage(msg: any): void {
-    // 4. Socket Preemption Defense
-    if (msg.type === 'force_disconnect') {
-      console.error("[Multiplayer] Disconnected: Session preempted by another tab.");
-      this.ws?.close();
-      return;
-    }
+    switch (msg.type) {
+      case 'force_disconnect':
+        // Session preempted by a newer connection of the same user.
+        this.closedByUser = true;
+        this.ws?.close();
+        break;
 
-    if (msg.type === 'init') {
-      this.userName = msg.userName;
-      this.userColor = msg.userColor;
-      this.whiteboard.setReadOnly(false);
-    }
-
-    if (msg.type === 'rtc_answer') {
-      this.rtcPeer?.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    }
-
-    if (msg.type === 'rtc_candidate') {
-      this.rtcPeer?.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
-
-    if (msg.type === 'lock') {
-      this.whiteboard.lockShape(msg.entityId, { userName: msg.userName, color: msg.color });
-    }
-
-    if (msg.type === 'unlock') {
-      this.whiteboard.unlockShape(msg.entityId);
-    }
-
-    if (msg.type === 'shapeCreated' || msg.type === 'shapeUpdated') {
-      this.whiteboard.events.pause();
-      // Internal loadShapes parses the JSON shape array into the ECS
-      (this.whiteboard as any).loadShapes(JSON.stringify([msg.data]));
-      
-      const entity = (this.whiteboard as any).world.getEntity(msg.data.id);
-      if (entity) {
-         // Apply server authoritative sequence
-         if (msg.data.zIndex !== undefined) {
-            let zComp = entity.getComponent((c: any) => c.constructor.name === 'ZIndexComponent');
-            if (!zComp) {
-              zComp = new (require('../component/ZIndexComponent').default)();
-              entity.addComponentInstance(zComp);
-            }
-            zComp.zIndex = msg.data.zIndex;
-         }
-         // Apply server authoritative version
-         if (msg.data.version !== undefined) {
-            let vComp = entity.getComponent((c: any) => c.constructor.name === 'VersionComponent');
-            if (!vComp) {
-              vComp = new (require('../component/VersionComponent').default)();
-              entity.addComponentInstance(vComp);
-            }
-            vComp.version = msg.data.version;
-         }
+      case 'init': {
+        this.userName = msg.userName;
+        this.userColor = msg.userColor;
+        // Full state flush: reconcile via loadShapes (this IS the full
+        // board), stamp server components, then re-baseline history so the
+        // flush is not locally undoable.
+        this.whiteboard.events.pause();
+        this.whiteboard.loadShapes(JSON.stringify(msg.shapes ?? []));
+        for (const shape of msg.shapes ?? []) {
+          this.whiteboard.applyShape(shape);
+        }
+        for (const [entityId, lock] of Object.entries<any>(msg.locks ?? {})) {
+          this.whiteboard.lockShape(entityId, { userName: lock.userName, color: lock.color });
+        }
+        this.whiteboard.resetHistoryBaseline();
+        this.whiteboard.events.resume();
+        this.whiteboard.setReadOnly(false);
+        break;
       }
-      this.whiteboard.events.resume();
-    }
 
-    if (msg.type === 'shapeDeleted') {
-      this.whiteboard.events.pause();
-      (this.whiteboard as any).world.removeEntity(msg.entityId);
-      this.whiteboard.events.resume();
-    }
+      case 'rtc_answer':
+        this.rtcPeer?.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        break;
+      case 'rtc_candidate':
+        this.rtcPeer?.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        break;
 
-    if (msg.type === 'sync') {
-      // Fallback: ephemeral update over TCP
-      this.handleSyncMessage(msg);
+      case 'lock':
+        this.whiteboard.lockShape(msg.entityId, { userName: msg.userName, color: msg.color });
+        break;
+      case 'unlock':
+        this.whiteboard.unlockShape(msg.entityId);
+        break;
+      case 'lock_denied':
+        // Our optimistic gesture lost the race: snap out of the user's hand.
+        this.whiteboard.abortInteraction();
+        this.whiteboard.undo();
+        break;
+
+      case 'shapeCreated':
+      case 'shapeUpdated':
+        this.whiteboard.events.pause();
+        this.whiteboard.applyShape(msg.data);
+        this.whiteboard.events.resume();
+        break;
+
+      case 'shapeDeleted':
+        this.whiteboard.events.pause();
+        this.whiteboard.removeShape(msg.entityId);
+        this.whiteboard.events.resume();
+        break;
+
+      case 'boardCleared':
+        this.whiteboard.events.pause();
+        this.whiteboard.clear();
+        this.whiteboard.events.resume();
+        break;
+
+      case 'sync':
+        // Ephemeral geometry over the TCP fallback path.
+        this.handleSyncMessage(msg);
+        break;
     }
   }
 
   private handleSyncMessage(msg: any): void {
-    const entity = (this.whiteboard as any).world.getEntity(msg.entityId);
+    const entity = this.whiteboard.world.getEntity(msg.entityId);
     if (!entity) return;
 
-    // Apply TargetTransform for dt-interpolation in Phase 2
-    let target = entity.getComponent((c: any) => c.constructor.name === 'TargetTransformComponent');
-    if (!target) {
-      target = new (require('../component/TargetTransformComponent').default)();
-      entity.addComponentInstance(target);
+    const props = { x: msg.x, y: msg.y, x1: msg.x1, y1: msg.y1, x2: msg.x2, y2: msg.y2 };
+    if (entity.hasComponent(TargetTransformComponent)) {
+      const target = entity.getComponent(TargetTransformComponent);
+      target.x = props.x; target.y = props.y;
+      target.x1 = props.x1; target.y1 = props.y1;
+      target.x2 = props.x2; target.y2 = props.y2;
+    } else {
+      entity.addComponent(TargetTransformComponent, props);
     }
-    target.init({ x: msg.x, y: msg.y, x1: msg.x1, y1: msg.y1, x2: msg.x2, y2: msg.y2 });
   }
 
   private handleLocalEvent(event: WhiteboardEvent): void {
@@ -172,10 +203,8 @@ export class MultiplayerPlugin {
     } else if (event.type === 'shapeInteractionEnded') {
       this.ws?.send(JSON.stringify({ type: 'unlock', entityId: event.entityId }));
     } else if (event.type === 'sync') {
-      // Ephemeral updates (cursor dragging)
       this.sendEphemeral(event);
     } else {
-      // Critical updates (creates, updates, deletes, metadata)
       this.ws?.send(JSON.stringify(event));
     }
   }

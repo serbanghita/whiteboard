@@ -5,6 +5,8 @@ import SelectionRectangleComponent from "../component/SelectionRectangleComponen
 import ToolStateComponent from "../component/ToolStateComponent";
 import LineComponent from "../component/LineComponent";
 import LineAttachmentComponent from "../component/LineAttachmentComponent";
+import RectangleComponent from "../component/RectangleComponent";
+import CircleComponent from "../component/CircleComponent";
 import { moveEntityBy } from "../shape";
 
 /**
@@ -25,11 +27,15 @@ export default class DragSystem extends System {
   private lastPressCount = 0;
   private lastX: number | null = null;
   private lastY: number | null = null;
+  // Entities being moved by the current hold; drives the
+  // interaction-started/ended callbacks (the multiplayer lock triggers).
+  private draggingIds: string[] | null = null;
 
   public constructor(
     public world: World,
     public query: Query,
-    private onSync?: (entityId: string, data: any) => void
+    private onSync?: (entityId: string, data: any) => void,
+    private onInteraction?: (phase: 'started' | 'ended', entityIds: string[]) => void,
   ) {
     super(world, query);
   }
@@ -63,6 +69,10 @@ export default class DragSystem extends System {
     if (!cursor.hasComponent(IsMousePressed)) {
       this.lastX = null;
       this.lastY = null;
+      if (this.draggingIds) {
+        this.onInteraction?.('ended', this.draggingIds);
+        this.draggingIds = null;
+      }
       return;
     }
 
@@ -95,6 +105,12 @@ export default class DragSystem extends System {
     // No selected entities, nothing to drag
     if (selectionComp.entities.size === 0) {
       return;
+    }
+
+    // First movement frame of this hold: the drag gesture starts now.
+    if (!this.draggingIds) {
+      this.draggingIds = [...selectionComp.entities.keys()];
+      this.onInteraction?.('started', this.draggingIds);
     }
 
     // Move all selected entities by the delta

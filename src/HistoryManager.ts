@@ -41,9 +41,17 @@ export class HistoryManager {
     if (this.undoStack.length === 0) return;
     const actions = this.undoStack.pop()!;
     
-    // Check Version-Aware constraints (Multiplayer Paradox Defense)
-    // If any action cannot be applied due to version mismatch or locked state, abort the entire transaction
-    const canUndo = actions.every(action => this.checkVersion(action.entityId, action.version));
+    // Version-aware constraints (multiplayer paradox defense): abort the
+    // whole transaction if any entity drifted (a peer changed it) or is
+    // locked. Expectations are per action type - undoing a DELETE expects
+    // the entity to be ABSENT (checkVersion's expected-version 0), while
+    // CREATE/UPDATE undos expect it present at the recorded version.
+    const canUndo = actions.every(action => {
+      if (action.type === 'DELETE') {
+        return this.checkVersion(action.entityId, 0);
+      }
+      return this.checkVersion(action.entityId, action.version);
+    });
     
     if (!canUndo) {
       console.warn("Undo aborted due to multiplayer version drift or shape locked state.");
@@ -65,19 +73,15 @@ export class HistoryManager {
     if (this.redoStack.length === 0) return;
     const actions = this.redoStack.pop()!;
     
-    // In redo, we check if the entity is currently at the version prior to the redo
-    // The expected version is the version after the original action
-    // But applying redo means we assume the version is now `version - 1` ?
-    // Let's simplify: check if it's currently at version (for UPDATE it should be version - 1, for CREATE it shouldn't exist)
-    // The checkVersion callback will handle the logic for undo/redo version matching.
+    // Mirror image of the undo expectations: redoing a CREATE expects the
+    // entity ABSENT (its undo removed it); DELETE/UPDATE redos expect it
+    // present at the recorded version. Version-less local boards satisfy
+    // every present-check, so single-player behavior is never blocked.
     const canRedo = actions.every(action => {
       if (action.type === 'CREATE') {
-        return this.checkVersion(action.entityId, 0); // expects not to exist
-      } else if (action.type === 'DELETE') {
-        return this.checkVersion(action.entityId, action.version);
-      } else {
-        return this.checkVersion(action.entityId, action.version); // actually if it was undone, its version is now action.version. Wait, if it was updated from v1 to v2, undo made it v1. Redo expects it to be v1. The action version is v1.
+        return this.checkVersion(action.entityId, 0);
       }
+      return this.checkVersion(action.entityId, action.version);
     });
 
     if (!canRedo) {

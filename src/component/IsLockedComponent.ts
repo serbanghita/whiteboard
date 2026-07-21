@@ -1,18 +1,25 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
-export default class IsLockedComponent extends Component {
-  public userName: string = '';
-  public color: string = '#000000';
+export interface IsLockedComponentProps {
+  // The remote user holding the lock, and their assigned display color.
+  userName: string;
+  color: string;
+}
 
-  public init(props?: { userName: string, color: string }): void {
-    if (props) {
-      this.userName = props.userName;
-      this.color = props.color;
-    }
+export default class IsLockedComponent extends Component<IsLockedComponentProps> {
+  public get userName(): string {
+    return this.properties.userName;
   }
 
-  public reset(): void {
-    this.userName = '';
-    this.color = '#000000';
+  public set userName(value: string) {
+    this.properties.userName = value;
+  }
+
+  public get color(): string {
+    return this.properties.color;
+  }
+
+  public set color(value: string) {
+    this.properties.color = value;
   }
 }

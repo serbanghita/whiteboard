@@ -8,7 +8,7 @@ import { IRenderer } from "../renderer";
 import { getConnectionPoints, getSelectionHandles, HANDLE_RADIUS } from "../handles";
 import CameraComponent from "../component/CameraComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
-import { getInteriorBox, getEntityBounds } from "../textLayout";
+import { getInteriorBox } from "../textLayout";
 import TextTextureCache from "../textRaster";
 import ZIndexComponent from "../component/ZIndexComponent";
 import IsLockedComponent from "../component/IsLockedComponent";

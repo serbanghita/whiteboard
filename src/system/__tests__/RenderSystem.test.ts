@@ -257,4 +257,78 @@ describe('RenderSystem', () => {
     expect(calls('rectangle')).toHaveLength(1);
     expect(handleCalls()).toHaveLength(0);
   });
+
+  describe('connection snap-target dots', () => {
+    // Blue filled dots; the ring is a stroked circle at HANDLE_RADIUS + 3.
+    function dotCalls(): RecordedCall[] {
+      return calls('circle').filter(
+        (c) => JSON.stringify(c.args[3]) === JSON.stringify({ fillColor: SELECTION_STROKE_COLOR })
+      );
+    }
+    function ringCalls(): RecordedCall[] {
+      return calls('circle').filter((c) => c.args[2] === 9);
+    }
+
+    // The selection stays empty in these tests (fields are set directly on
+    // the component), so the selection overlay can't contribute dots.
+    function selection(): SelectionRectangleComponent {
+      return selectionEntity.getComponent(SelectionRectangleComponent);
+    }
+
+    beforeEach(() => {
+      addShape('r1', RectangleComponent, { x: 0, y: 0, width: 100, height: 100 });
+      addShape('r2', RectangleComponent, { x: 200, y: 0, width: 100, height: 100 });
+    });
+
+    it('draws no dots when no drag claims the press, even with a stale snap', () => {
+      selection().connectionSnap = { entityId: 'r2', handleId: 'w' };
+      system.update(0);
+
+      expect(dotCalls()).toHaveLength(0);
+    });
+
+    it('draws dots only on the snap target during a connection drag, with a ring on the glue point', () => {
+      selection().connectionHandleId = 'e';
+      selection().connectionSnap = { entityId: 'r2', handleId: 'w' };
+      system.update(0);
+
+      // Exactly r2's four connection points - none of r1's.
+      expect(dotCalls().map((c) => [c.args[0], c.args[1]])).toEqual([
+        [250, 0],
+        [300, 50],
+        [250, 100],
+        [200, 50],
+      ]);
+      const rings = ringCalls();
+      expect(rings).toHaveLength(1);
+      expect([rings[0].args[0], rings[0].args[1]]).toEqual([200, 50]);
+    });
+
+    it('draws no dots during a connection drag with no snap target', () => {
+      selection().connectionHandleId = 'e';
+      selection().connectionSnap = null;
+      system.update(0);
+
+      expect(dotCalls()).toHaveLength(0);
+    });
+
+    it('draws the target dots during a line endpoint resize', () => {
+      selection().resizeHandleId = 'start';
+      selection().connectionSnap = { entityId: 'r2', handleId: 'e' };
+      system.update(0);
+
+      expect(dotCalls()).toHaveLength(4);
+      const rings = ringCalls();
+      expect(rings).toHaveLength(1);
+      expect([rings[0].args[0], rings[0].args[1]]).toEqual([300, 50]);
+    });
+
+    it('draws no dots during a corner resize', () => {
+      selection().resizeHandleId = 'se';
+      selection().connectionSnap = { entityId: 'r2', handleId: 'w' };
+      system.update(0);
+
+      expect(dotCalls()).toHaveLength(0);
+    });
+  });
 });

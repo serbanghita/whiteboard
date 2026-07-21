@@ -143,9 +143,10 @@ export default class RenderingSystem extends System {
   }
 
   /**
-   * While a connection drag is active, show every shape's connection points
-   * so the user can see what the line can attach to, and ring-highlight the
-   * point the endpoint is currently snapped to.
+   * While a line endpoint is being dragged - a connection drag out of a
+   * shape's dot, or a ResizeSystem drag of a line's start/end handle - show
+   * the connection points of the shape the endpoint is currently snapped to,
+   * ring-highlighting the glue point. No snap target -> no dots.
    */
   private renderConnectionTargets(scale: number): void {
     const selectionEntity = this.world.getEntity('selection');
@@ -153,24 +154,32 @@ export default class RenderingSystem extends System {
       return;
     }
     const selectionComp = selectionEntity.getComponent(SelectionRectangleComponent);
-    if (!selectionComp.connectionHandleId) {
+    // Corner resizes claim 'nw'/'ne'/'sw'/'se'; only line endpoint drags
+    // claim 'start'/'end'.
+    const endpointResize =
+      selectionComp.resizeHandleId === 'start' || selectionComp.resizeHandleId === 'end';
+    if (!selectionComp.connectionHandleId && !endpointResize) {
       return;
     }
 
     const snap = selectionComp.connectionSnap;
-    this.query.execute().forEach((entity) => {
-      // Lines and non-shapes yield no connection points.
-      getConnectionPoints(entity).forEach((handle) => {
-        this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
-          fillColor: SELECTION_STROKE_COLOR,
-        });
-        if (snap && snap.entityId === entity.id && snap.handleId === handle.id) {
-          this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
-            strokeColor: SELECTION_STROKE_COLOR,
-            strokeWidth: 2 / scale,
-          });
-        }
+    if (!snap) {
+      return;
+    }
+    const target = this.world.getEntity(snap.entityId);
+    if (!target) {
+      return;
+    }
+    getConnectionPoints(target).forEach((handle) => {
+      this.renderer.circle(handle.x, handle.y, HANDLE_RADIUS / scale, {
+        fillColor: SELECTION_STROKE_COLOR,
       });
+      if (snap.handleId === handle.id) {
+        this.renderer.circle(handle.x, handle.y, (HANDLE_RADIUS + 3) / scale, {
+          strokeColor: SELECTION_STROKE_COLOR,
+          strokeWidth: 2 / scale,
+        });
+      }
     });
   }
 

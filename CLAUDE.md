@@ -39,11 +39,12 @@ bivariance errors at `registerComponents` call sites — `npx tsc --noEmit` is t
 CHANGELOG.md                    # Project history and milestone tracker (repo root)
 src/
 ├── index.ts                    # Thin entry point: re-exports Whiteboard, exposes window.Whiteboard
-├── Whiteboard.ts               # The app class: builds DOM (wrapper/canvas/floating menu), binds all
-│                               #   input events, registers components/entities/queries/systems,
-│                               #   save()/load() JSON serialization, saveShapes()/loadShapes()
-│                               #   (id-preserving differential snapshots for undo), undo()/redo(),
-│                               #   destroy()
+├── Whiteboard.ts               # The app class: builds DOM (wrapper/canvas/floating menu/save-load
+│                               #   popup), binds all input events, registers components/entities/
+│                               #   queries/systems, save()/load() (v2 semantic JSON export/import,
+│                               #   loads v1.1/v1.0 too), saveShapes()/loadShapes() (id-preserving
+│                               #   differential snapshots for undo - NEVER rounded/reformatted),
+│                               #   undo()/redo(), destroy()
 ├── HistoryManager.ts           # Pure undo/redo stack over saveShapes() JSON strings (string-equality
 │                               #   dedup, redo-clear on push, 100-step cap, onStateChange callback)
 ├── PropertiesPanel.ts          # Contextual DOM bar over the single selected shape (fill/stroke
@@ -73,10 +74,14 @@ src/
 │                               #   for line arrowheads), dot, textured quads
 ├── __mocks__/webgl.ts          # Mock WebGL context for headless tests
 ├── __tests__/app.smoke.test.ts # Boots the real app in jsdom, drives tools frame-by-frame
+├── __tests__/serialization.test.ts   # save()/load() v2 + fallbacks, roundtrip identity, undo
+│                                     #   byte-stability, sysType survival, popup flows
 ├── __tests__/historyManager.test.ts  # Unit tests for the undo/redo stack
 ├── __tests__/textLayout.test.ts      # Pure layout tests (fake monospace measurer, no DOM/ECS)
 ├── component/                  # Data containers (no logic)
-│   ├── RectangleComponent.ts   # x, y, width, height, colors
+│   ├── RectangleComponent.ts   # x, y, width, height, colors, sysType? (SYS tool id, e.g. 'gw' -
+│   │                           #   absent on plain rects; the durable semantic type, since the
+│   │                           #   label text is user-editable)
 │   ├── CircleComponent.ts      # x, y (center), radius, colors
 │   ├── LineComponent.ts        # x1, y1, x2, y2, colors, length getter, arrowStart/arrowEnd
 │   │                           #   ('arrow' | undefined; 'none' is never stored - absent key
@@ -98,7 +103,8 @@ src/
     ├── ToolStateSystem.ts      # Tool-mode housekeeping
     ├── RectangleDrawSystem.ts  # Press-drag-release rectangle drawing (min size 5); also handles
     │                           #   every system-design tool (same flow + stamps the registry's
-    │                           #   label as a TextComponent on the finished rect)
+    │                           #   label as a TextComponent AND the tool id as sysType on the
+    │                           #   finished rect)
     ├── CircleDrawSystem.ts     # Press-drag-release circle drawing (fits bounding box, min r 3)
     ├── LineDrawSystem.ts       # Two-click line drawing (min length 5)
     ├── ResizeSystem.ts         # Resize selected shape via handle drag (runs BEFORE MousePress/Drag,
@@ -171,7 +177,7 @@ All input handlers live in `Whiteboard.bindEvents`:
 4. `wheel` (canvas, `passive: false` + `preventDefault`) → `applyWheel`: ctrl/cmd+wheel (= trackpad pinch) zooms at the cursor (world point under cursor stays fixed, clamped 0.1–8), plain wheel pans; afterwards the mouse world position is re-derived from `screenX/screenY` so mid-gesture zooms don't go stale
 5. `dblclick` (canvas) → `MouseComponent.doubleClick(worldX, worldY)` (event-time counter, same
    idiom as press) — consumed by TextEditSystem to open the text editor
-6. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`); the blue **SYS** button (`data-action="toggle-sys"`) instead toggles the system-design grid panel flying out to the right of the menu (panel buttons are `data-tool` too, so the same delegation handles them — the panel stays open across tool picks). Delegated mouseover/mouseout on the menu tint resting buttons light grey (`hoverTint` dataset flag; only the tint is ever reset, so the active-tool/open-SYS highlights survive — any explicit background set deletes the flag)
+6. Floating menu clicks (`data-tool`) → removes any in-progress preview entity, then sets `ToolStateComponent.currentTool` (+ `reset()`); the blue **SYS** button (`data-action="toggle-sys"`) instead toggles the system-design grid panel flying out to the right of the menu (panel buttons are `data-tool` too, so the same delegation handles them — the panel stays open across tool picks); the 💾/📂 buttons (`data-action="save"/"load"`) open the Save/Load popup (lazy-built overlay — while closed there is NO popup textarea in the DOM, which the text-edit overlay lookup and smoke tests rely on; both open paths commit an in-flight text edit first). Delegated mouseover/mouseout on the menu tint resting buttons light grey (`hoverTint` dataset flag; only the tint is ever reset, so the active-tool/open-SYS highlights survive — any explicit background set deletes the flag)
 7. Escape → cancels in-progress drawing (removes preview entity)
 8. Cmd/Ctrl+Z → undo; Cmd/Ctrl+Shift+Z or Ctrl+Y → redo (gated on `isActive` like Escape,
    `preventDefault` blocks native undo; no-ops while the button is held or a draw is mid-gesture)
@@ -244,8 +250,10 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   showing each primitive's full name (styled like the menu; hidden again on a second SYS press).
   Each tool is a rectangle-tool
   variant: RectangleDrawSystem draws the rect and stamps the registry's label as a centered
-  TextComponent, then auto-reverts to cursor like any draw. The label is ordinary shape text
-  (editable via double-click, serialized, duplicated, undoable)
+  TextComponent plus the tool id as `RectangleComponent.sysType`, then auto-reverts to cursor
+  like any draw. The label is ordinary shape text (editable via double-click, serialized,
+  duplicated, undoable); `sysType` is the durable semantic record (copied by Cmd+D, reconciled
+  through undo/redo snapshots, exported as the v2 node `type`)
 - Hovering has **no visual effect** — IsMouseOver tags are still maintained (cursor mode only) for
   future cursor feedback, but RenderSystem ignores them
 - **Zoom + pan camera** (`camera` entity, `src/camera.ts`): pinch / ctrl/cmd+wheel zooms toward the
@@ -274,13 +282,28 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   `strokeColor: 'black'` (previously no fill). A shape's text always draws on top of its own
   fill (shape first, text immediately after); legacy loaded shapes without a fill stay
   transparent
+- **Save/Load v2 semantic JSON** (`Whiteboard.save()/load()` + 💾/📂 popup): `save()` exports
+  `{v: 2, camera, nodes, edges}` — nodes are rects/circles (`type` = `sysType` for SYS shapes,
+  else `rect`/`circle`; `text` collapses to a plain string at default font), edges are lines
+  with `from`/`to` pins as `"entityId:handleId"`; coordinates rounded to integers and default
+  styles (white fill / black stroke / width 1) omitted, `"fill": "none"` marking transparent
+  legacy shapes — ALL export-time only, built from the untouched `saveShapes()` snapshot
+  (byte-stable across exports; rounding must never enter the undo path). `load()` detects
+  v2 / v1.1 (`{version, camera, shapes}`) / v1.0 (bare array), validates pins (bad handle →
+  dangling line), skips entries without finite geometry, returns `{loaded, skipped}`, restores
+  the optional camera, records one undo step, and throws only on unparseable/unrecognized
+  input. The popup (lazy-built; class-queried refs, no DOM ids) shows the pretty-printed
+  export read-only with Load disabled, or an editable paste target: confirm is gated on
+  `canApplyHistory()`, parse errors red-border the textarea, `skipped > 0` keeps it open with
+  a "Loaded N, skipped M" notice; Escape closes it (popup-scoped keydown with
+  stopPropagation - the popup owns the keyboard while open)
 
 ## TODO / Incomplete
 
 - Resize cursor feedback (nwse-resize etc. when hovering a handle)
 - Re-snap/re-attach when dragging a line endpoint near a connection point (endpoint drag only detaches today)
-- `Whiteboard.save()/load()` now persist entity ids + line attachments (v1.1 format; legacy v1.0
-  `color`-field files still load), but there's no localStorage hookup yet
+- `Whiteboard.save()/load()` export/import the v2 semantic JSON via the popup (v1.1/v1.0 files
+  still load), but there's no localStorage hookup or file download yet
 - Menu highlight not synced when a draw auto-reverts to cursor (regression from the Whiteboard refactor)
 - Multi-entity selection + SHIFT+click additive selection (needs keyboard state; SelectionSystem
   already computes union bounds, MousePressSystem is single-select)

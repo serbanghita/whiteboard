@@ -1265,6 +1265,12 @@
     set strokeWidth(value) {
       this.properties.strokeWidth = value;
     }
+    get sysType() {
+      return this.properties.sysType;
+    }
+    set sysType(value) {
+      this.properties.sysType = value;
+    }
     // Computed properties for convenience
     get centerX() {
       return this.properties.x + this.properties.width / 2;
@@ -2866,6 +2872,7 @@
                 console.log(`Rectangle created: ${toolState.previewEntityId}`);
                 const label = systemDesignLabel(toolState.currentTool);
                 if (label) {
+                  rectComp.sysType = toolState.currentTool;
                   previewEntity.addComponent(TextComponent, {
                     content: label,
                     fontSize: 16,
@@ -3269,6 +3276,13 @@
     $redoBtn;
     $sysBtn;
     $sysPanel;
+    // Save/Load popup elements (class-queried refs, never DOM ids - ids would
+    // collide across Whiteboard instances).
+    $popup;
+    $popupPanel;
+    $popupTextarea;
+    $popupConfirm;
+    $popupNotice;
     loadedShapeCounter = 0;
     duplicateCounter = 0;
     constructor(container) {
@@ -3324,6 +3338,9 @@
         <button data-action="redo" title="Redo (Cmd+Shift+Z)" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;">
             <svg viewBox="0 0 24 24" style="width:24px;height:24px;stroke:#333;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
         </button>
+        <div style="height:1px;background:#e0e0e0;margin:4px 0;"></div>
+        <button data-action="save" title="Save JSON" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:20px;">&#128190;</button>
+        <button data-action="load" title="Load JSON" style="width:40px;height:40px;border:none;background:transparent;cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:20px;">&#128194;</button>
     `;
       this.$undoBtn = menu.querySelector('[data-action="undo"]');
       this.$redoBtn = menu.querySelector('[data-action="redo"]');
@@ -3498,6 +3515,8 @@
           if (actionButton.dataset.action === "undo") this.undo();
           else if (actionButton.dataset.action === "redo") this.redo();
           else if (actionButton.dataset.action === "toggle-sys") this.toggleSysPanel();
+          else if (actionButton.dataset.action === "save") this.openSavePopup();
+          else if (actionButton.dataset.action === "load") this.openLoadPopup();
           return;
         }
         const button = e.target.closest("[data-tool]");
@@ -3579,6 +3598,96 @@
       this.$sysBtn.style.background = open ? "#e8f0fe" : "transparent";
       delete this.$sysBtn.dataset.hoverTint;
     }
+    // Builds the Save/Load popup overlay on first open (lazy: while closed
+    // there must be NO popup textarea in the DOM - the text-edit overlay is
+    // found by element type). Shown via display:'flex' - the centering styles
+    // need flex to apply.
+    buildSaveLoadPopup() {
+      if (this.$popup) return;
+      this.$popup = document.createElement("div");
+      this.$popup.style.display = "none";
+      this.$popup.style.position = "absolute";
+      this.$popup.style.inset = "0";
+      this.$popup.style.background = "rgba(0, 0, 0, 0.5)";
+      this.$popup.style.zIndex = "2000";
+      this.$popup.style.alignItems = "center";
+      this.$popup.style.justifyContent = "center";
+      this.$popup.innerHTML = `
+      <div class="save-load-panel" tabindex="-1" style="background:white;padding:20px;border-radius:8px;width:60%;height:60%;display:flex;flex-direction:column;gap:10px;box-shadow:2px 4px 8px rgba(0,0,0,0.15);">
+        <textarea class="save-load-textarea" spellcheck="false" style="flex:1;font-family:monospace;font-size:12px;resize:none;border:1px solid #ccc;border-radius:4px;padding:8px;"></textarea>
+        <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+          <span class="save-load-notice" style="margin-right:auto;font:12px sans-serif;color:#666;"></span>
+          <button class="save-load-cancel" style="padding:6px 16px;border:1px solid #ccc;background:white;border-radius:4px;cursor:pointer;">Cancel</button>
+          <button class="save-load-confirm" style="padding:6px 16px;border:none;background:#1a73e8;color:white;border-radius:4px;cursor:pointer;">Load</button>
+        </div>
+      </div>
+    `;
+      this.$popupPanel = this.$popup.querySelector(".save-load-panel");
+      this.$popupTextarea = this.$popup.querySelector(".save-load-textarea");
+      this.$popupConfirm = this.$popup.querySelector(".save-load-confirm");
+      this.$popupNotice = this.$popup.querySelector(".save-load-notice");
+      this.$wrapper.appendChild(this.$popup);
+      this.$popup.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") this.closeSaveLoadPopup();
+      });
+      this.$popup.addEventListener("click", (e) => {
+        if (e.target === this.$popup) this.closeSaveLoadPopup();
+        else if (e.target === this.$popupPanel) this.$popupPanel.focus();
+      });
+      this.$popup.querySelector(".save-load-cancel").addEventListener("click", () => this.closeSaveLoadPopup());
+      this.$popupConfirm.addEventListener("click", () => this.confirmLoad());
+    }
+    // Shows the exported v2 document, read-only, ready to copy.
+    openSavePopup() {
+      this.commitTextEditIfAny();
+      this.buildSaveLoadPopup();
+      this.resetPopupState();
+      this.$popupTextarea.value = JSON.stringify(JSON.parse(this.save()), null, 2);
+      this.$popupTextarea.readOnly = true;
+      this.$popupConfirm.disabled = true;
+      this.$popupConfirm.style.opacity = "0.3";
+      this.$popup.style.display = "flex";
+      this.$popupTextarea.focus();
+      this.$popupTextarea.select();
+    }
+    // Shows an empty editable textarea to paste a document into.
+    openLoadPopup() {
+      this.commitTextEditIfAny();
+      this.buildSaveLoadPopup();
+      this.resetPopupState();
+      this.$popupTextarea.value = "";
+      this.$popupTextarea.readOnly = false;
+      this.$popupConfirm.disabled = false;
+      this.$popupConfirm.style.opacity = "1";
+      this.$popup.style.display = "flex";
+      this.$popupTextarea.focus();
+    }
+    confirmLoad() {
+      if (!this.canApplyHistory()) return;
+      try {
+        const result = this.load(this.$popupTextarea.value);
+        if (result.skipped > 0) {
+          this.resetPopupState();
+          this.$popupNotice.textContent = `Loaded ${result.loaded} shapes, skipped ${result.skipped} malformed entries`;
+        } else {
+          this.closeSaveLoadPopup();
+        }
+      } catch (err) {
+        this.$popupTextarea.style.borderColor = "red";
+        this.$popupNotice.textContent = err instanceof Error ? err.message : "Invalid JSON";
+        this.$popupNotice.style.color = "red";
+      }
+    }
+    resetPopupState() {
+      this.$popupTextarea.style.borderColor = "#ccc";
+      this.$popupNotice.textContent = "";
+      this.$popupNotice.style.color = "#666";
+    }
+    closeSaveLoadPopup() {
+      this.resetPopupState();
+      this.$popup.style.display = "none";
+    }
     destroy() {
       this.resizeObserver.disconnect();
       window.removeEventListener("mouseup", this.boundMouseup, { capture: true });
@@ -3608,6 +3717,7 @@
           data.fillColor = comp.fillColor;
           data.strokeColor = comp.strokeColor;
           data.strokeWidth = comp.strokeWidth;
+          data.sysType = comp.sysType;
         } else if (entity.hasComponent(CircleComponent)) {
           const comp = entity.getComponent(CircleComponent);
           data.type = "circle";
@@ -3671,7 +3781,8 @@
               height: shape.height,
               fillColor: shape.fillColor,
               strokeColor,
-              strokeWidth: shape.strokeWidth
+              strokeWidth: shape.strokeWidth,
+              sysType: shape.sysType
             });
           } else if (shape.type === "circle") {
             entity.addComponent(CircleComponent, {
@@ -3704,6 +3815,7 @@
             comp.fillColor = shape.fillColor;
             comp.strokeColor = strokeColor;
             comp.strokeWidth = shape.strokeWidth;
+            comp.sysType = shape.sysType;
           } else if (shape.type === "circle" && entity.hasComponent(CircleComponent)) {
             const comp = entity.getComponent(CircleComponent);
             comp.x = shape.x;
@@ -3813,7 +3925,8 @@
             height: comp.height,
             fillColor: comp.fillColor,
             strokeColor: comp.strokeColor,
-            strokeWidth: comp.strokeWidth
+            strokeWidth: comp.strokeWidth,
+            sysType: comp.sysType
           });
         } else if (source.hasComponent(CircleComponent)) {
           const comp = source.getComponent(CircleComponent);
@@ -3885,24 +3998,139 @@
       this.$redoBtn.disabled = !this.history.canRedo();
       this.$redoBtn.style.opacity = this.history.canRedo() ? "1" : "0.3";
     }
+    /**
+     * Exports the board as the LLM-friendly v2 document: `{v, camera, nodes,
+     * edges}`. Nodes are rectangles/circles (`type` = sysType for SYS shapes,
+     * else 'rect'/'circle'), edges are lines with attachments encoded as
+     * `"entityId:handleId"`. Coordinates are rounded to integers and default
+     * styles (white fill, black stroke, width 1) are omitted - export-time
+     * concerns only; the undo snapshots (saveShapes) keep full precision.
+     * Built from the canonical internal snapshot so the preview exclusion and
+     * field canonicalization live in one place.
+     */
     save() {
       const cam = this.camera;
-      return JSON.stringify({
-        version: "1.1",
-        camera: { x: cam.x, y: cam.y, scale: cam.scale },
-        shapes: JSON.parse(this.saveShapes())
-      });
+      const shapes = JSON.parse(this.saveShapes());
+      const nodes = [];
+      const edges = [];
+      for (const s of shapes) {
+        if (s.type === "line") {
+          const e = {
+            id: s.id,
+            x1: Math.round(s.x1),
+            y1: Math.round(s.y1),
+            x2: Math.round(s.x2),
+            y2: Math.round(s.y2)
+          };
+          if (s.strokeColor && s.strokeColor !== "black") e.stroke = s.strokeColor;
+          if (s.strokeWidth && s.strokeWidth !== 1) e.strokeWidth = s.strokeWidth;
+          if (s.arrowStart) e.arrowStart = s.arrowStart;
+          if (s.arrowEnd) e.arrowEnd = s.arrowEnd;
+          if (s.attachment?.start) e.from = `${s.attachment.start.entityId}:${s.attachment.start.handleId}`;
+          if (s.attachment?.end) e.to = `${s.attachment.end.entityId}:${s.attachment.end.handleId}`;
+          edges.push(e);
+        } else {
+          const n = { id: s.id, type: s.sysType ?? (s.type === "circle" ? "circle" : "rect") };
+          n.x = Math.round(s.x);
+          n.y = Math.round(s.y);
+          if (s.type === "circle") {
+            n.r = Math.round(s.radius);
+          } else {
+            n.w = Math.round(s.width);
+            n.h = Math.round(s.height);
+          }
+          if (s.fillColor === void 0) n.fill = "none";
+          else if (s.fillColor !== "white") n.fill = s.fillColor;
+          if (s.strokeColor && s.strokeColor !== "black") n.stroke = s.strokeColor;
+          if (s.strokeWidth && s.strokeWidth !== 1) n.strokeWidth = s.strokeWidth;
+          if (s.text) {
+            const isDefaultFont = s.text.fontSize === 16 && s.text.fontFamily === "sans-serif" && s.text.color === "black";
+            n.text = isDefaultFont ? s.text.content : s.text;
+          }
+          nodes.push(n);
+        }
+      }
+      return JSON.stringify({ v: 2, camera: { x: cam.x, y: cam.y, scale: cam.scale }, nodes, edges });
     }
+    /**
+     * Loads a whiteboard document in any of the three formats: v2 semantic
+     * (`{v, nodes, edges}`), v1.1 (`{version, camera, shapes}`) or v1.0 (bare
+     * legacy array). Throws on unparseable/unrecognized input - the only hard
+     * failure. v2 entries without the required finite geometry are skipped and
+     * counted, never failing the whole load (forgiving input for LLM-authored
+     * documents). `camera` is optional; when absent the current view is kept.
+     */
     load(json) {
       const data = JSON.parse(json);
+      let shapes;
+      let skipped = 0;
+      if (Array.isArray(data)) {
+        shapes = data;
+      } else if (data.shapes) {
+        shapes = data.shapes;
+      } else if (data.v === 2 || data.nodes || data.edges) {
+        const finite = (...values) => values.every((v) => Number.isFinite(v));
+        const HANDLES = /* @__PURE__ */ new Set(["n", "e", "s", "w"]);
+        const parsePin = (ref) => {
+          if (typeof ref !== "string") return null;
+          const i = ref.lastIndexOf(":");
+          const entityId = ref.slice(0, i), handleId = ref.slice(i + 1);
+          if (!entityId || !HANDLES.has(handleId)) return null;
+          return { entityId, handleId };
+        };
+        const nodes = (data.nodes ?? []).filter((n) => {
+          const ok = finite(n.x, n.y) && (finite(n.r) || finite(n.w, n.h));
+          if (!ok) skipped++;
+          return ok;
+        }).map((n) => ({
+          id: n.id,
+          type: Number.isFinite(n.r) ? "circle" : "rectangle",
+          x: n.x,
+          y: n.y,
+          width: n.w,
+          height: n.h,
+          radius: n.r,
+          // Semantic types are rect-only; a circle node's non-basic type is
+          // dropped by loadShapes (CircleComponent has no sysType).
+          sysType: n.type === "rect" || n.type === "circle" ? void 0 : n.type,
+          fillColor: n.fill === "none" ? void 0 : n.fill ?? "white",
+          strokeColor: n.stroke ?? "black",
+          strokeWidth: n.strokeWidth,
+          text: typeof n.text === "string" ? { content: n.text, fontSize: 16, fontFamily: "sans-serif", color: "black" } : n.text
+        }));
+        const edges = (data.edges ?? []).filter((e) => {
+          const ok = finite(e.x1, e.y1, e.x2, e.y2);
+          if (!ok) skipped++;
+          return ok;
+        }).map((e) => {
+          const start = parsePin(e.from), end = parsePin(e.to);
+          return {
+            id: e.id,
+            type: "line",
+            x1: e.x1,
+            y1: e.y1,
+            x2: e.x2,
+            y2: e.y2,
+            strokeColor: e.stroke ?? "black",
+            strokeWidth: e.strokeWidth,
+            arrowStart: e.arrowStart,
+            arrowEnd: e.arrowEnd,
+            attachment: start || end ? { start, end } : void 0
+          };
+        });
+        shapes = [...nodes, ...edges];
+      } else {
+        throw new Error("Unrecognized whiteboard file format");
+      }
       if (data.camera) {
         const cam = this.camera;
         cam.x = data.camera.x;
         cam.y = data.camera.y;
         cam.scale = data.camera.scale;
       }
-      this.loadShapes(JSON.stringify(data.shapes ?? []));
+      this.loadShapes(JSON.stringify(shapes));
       this.recordHistory();
+      return { loaded: shapes.length, skipped };
     }
   };
 

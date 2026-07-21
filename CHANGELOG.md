@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Save/Load semantic JSON (v2): `Whiteboard.save()` exports an LLM-friendly `{v, camera, nodes,
+  edges}` document — nodes carry the system-design type (`"gw"`, `"db"`, ... via the new
+  `RectangleComponent.sysType`, stamped when a SYS tool draws), edges encode attachments as
+  `"entityId:handleId"`, coordinates are rounded to integers and default styles (white fill,
+  black stroke) are omitted — export-time only; undo snapshots keep full precision.
+  `Whiteboard.load()` detects and imports v2, v1.1 (`{version, camera, shapes}`) and v1.0 (bare
+  array) documents, validates attachment pins, skips entries without finite geometry (returns
+  `{loaded, skipped}` — partial success, never a whole-load failure) and records one undo step.
+  New 💾 Save / 📂 Load menu buttons open a popup: Save shows the pretty-printed document
+  read-only; Load accepts pasted JSON with inline error/skip reporting. Opening either commits
+  an in-flight text edit first. Covered by `src/__tests__/serialization.test.ts` (16 tests).
 - Contextual properties panel (`src/PropertiesPanel.ts`): a horizontal bar over the single
   selected shape, 40px above it (flipping below when the shape is near the viewport top),
   following the shape every frame and hiding during drags/resizes/draws/text edits. Rectangles

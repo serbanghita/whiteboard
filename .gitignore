@@ -4,3 +4,4 @@ src/*.js.map
 gamedev
 node_modules
 .planning/.sessions/
+.DS_Store

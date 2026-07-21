@@ -295,6 +295,120 @@ describe("roundtrip and undo stability", () => {
   });
 });
 
+function clickAction(action: string) {
+  (document.querySelector(`[data-action="${action}"]`) as HTMLButtonElement)
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+}
+
+function popupTextarea(): HTMLTextAreaElement {
+  return document.querySelector(".save-load-textarea") as HTMLTextAreaElement;
+}
+
+function popupConfirm(): HTMLButtonElement {
+  return document.querySelector(".save-load-confirm") as HTMLButtonElement;
+}
+
+function popupOverlay(): HTMLDivElement | null {
+  return document.querySelector(".save-load-panel")?.parentElement as HTMLDivElement | null;
+}
+
+function closePopupIfOpen() {
+  const cancel = document.querySelector(".save-load-cancel") as HTMLButtonElement | null;
+  if (cancel && popupOverlay()?.style.display !== "none") {
+    cancel.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  }
+}
+
+// The text-edit overlay textarea (the popup's own textarea is class-marked).
+function editTextarea(): HTMLTextAreaElement | null {
+  return document.querySelector("textarea:not(.save-load-textarea)");
+}
+
+function dblclick(screenX: number, screenY: number) {
+  const w = screenToWorld(cameraComp(), screenX, screenY);
+  cursor.getComponent(MouseComponent).doubleClick(w.x, w.y);
+}
+
+describe("save/load popup", () => {
+  beforeEach(() => closePopupIfOpen());
+
+  it("save shows the pretty-printed v2 document read-only with Load disabled", () => {
+    drawRect("gw", 10, 10, 170, 90);
+    clickAction("save");
+    expect(popupOverlay()!.style.display).toBe("flex");
+    expect(popupTextarea().readOnly).toBe(true);
+    expect(popupConfirm().disabled).toBe(true);
+    const doc = JSON.parse(popupTextarea().value);
+    expect(doc.v).toBe(2);
+    expect(doc.nodes[0].type).toBe("gw");
+    // Pretty-printed for reading/copying, not the compact export.
+    expect(popupTextarea().value).toContain("\n");
+  });
+
+  it("invalid JSON on confirm keeps the popup open, marks the error, board untouched", () => {
+    const rect = drawRect("rectangle", 10, 10, 100, 100);
+    clickAction("load");
+    popupTextarea().value = "not json {";
+    popupConfirm().dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+    expect(popupOverlay()!.style.display).toBe("flex");
+    expect(popupTextarea().style.borderColor).toBe("red");
+    expect(world.getEntity(rect.id)).toBeDefined();
+    expect(entityIdsByPrefix("loaded-shape-")).toHaveLength(0);
+  });
+
+  it("confirm is refused while the mouse is held, then works after release", () => {
+    drawRect("rectangle", 10, 10, 100, 100);
+    clickAction("load");
+    popupTextarea().value = JSON.stringify({
+      v: 2, nodes: [{ id: "held-1", type: "rect", x: 0, y: 0, w: 50, h: 50 }], edges: [],
+    });
+
+    press(500, 500);
+    popupConfirm().dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(world.getEntity("held-1")).toBeUndefined();
+
+    release();
+    frame();
+    popupConfirm().dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    expect(world.getEntity("held-1")).toBeDefined();
+    expect(popupOverlay()!.style.display).toBe("none");
+  });
+
+  it("opening Load commits an open text edit first", () => {
+    const rect = drawRect("rectangle", 200, 200, 360, 280); // cursor mode, selected
+    dblclick(280, 240);
+    frame();
+    const toolState = world.getEntity("tool")!.getComponent(ToolStateComponent);
+    expect(toolState.editingEntityId).toBe(rect.id);
+    editTextarea()!.value = "hello";
+
+    clickAction("load");
+    expect(toolState.editingEntityId).toBeNull();
+    expect(rect.getComponent(TextComponent).content).toBe("hello");
+    expect(popupOverlay()!.style.display).toBe("flex");
+  });
+
+  it("skipped malformed entries keep the popup open with a notice", () => {
+    clickAction("load");
+    popupTextarea().value = JSON.stringify({
+      v: 2,
+      nodes: [
+        { id: "good-1", type: "rect", x: 0, y: 0, w: 50, h: 50 },
+        { id: "bad-1", type: "rect" },
+      ],
+      edges: [],
+    });
+    popupConfirm().dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+    expect(world.getEntity("good-1")).toBeDefined();
+    expect(world.getEntity("bad-1")).toBeUndefined();
+    expect(popupOverlay()!.style.display).toBe("flex");
+    expect(document.querySelector(".save-load-notice")!.textContent)
+      .toBe("Loaded 1 shapes, skipped 1 malformed entries");
+  });
+});
+
 describe("sysType survival", () => {
   it("is copied by duplicateSelection and kept in the export", () => {
     drawRect("gw", 10, 10, 170, 90); // auto-selected after draw

@@ -760,13 +760,51 @@ export class Whiteboard {
     this.$redoBtn.style.opacity = this.history.canRedo() ? '1' : '0.3';
   }
 
+  /**
+   * Exports the board as the LLM-friendly v2 document: `{v, camera, nodes,
+   * edges}`. Nodes are rectangles/circles (`type` = sysType for SYS shapes,
+   * else 'rect'/'circle'), edges are lines with attachments encoded as
+   * `"entityId:handleId"`. Coordinates are rounded to integers and default
+   * styles (white fill, black stroke, width 1) are omitted - export-time
+   * concerns only; the undo snapshots (saveShapes) keep full precision.
+   * Built from the canonical internal snapshot so the preview exclusion and
+   * field canonicalization live in one place.
+   */
   public save(): string {
     const cam = this.camera;
-    return JSON.stringify({
-      version: "1.1",
-      camera: { x: cam.x, y: cam.y, scale: cam.scale },
-      shapes: JSON.parse(this.saveShapes())
-    });
+    const shapes = JSON.parse(this.saveShapes()) as any[];
+    const nodes: any[] = [];
+    const edges: any[] = [];
+    for (const s of shapes) {
+      if (s.type === 'line') {
+        const e: any = { id: s.id, x1: Math.round(s.x1), y1: Math.round(s.y1),
+                         x2: Math.round(s.x2), y2: Math.round(s.y2) };
+        if (s.strokeColor && s.strokeColor !== 'black') e.stroke = s.strokeColor;
+        if (s.strokeWidth && s.strokeWidth !== 1) e.strokeWidth = s.strokeWidth;
+        if (s.arrowStart) e.arrowStart = s.arrowStart;
+        if (s.arrowEnd) e.arrowEnd = s.arrowEnd;
+        if (s.attachment?.start) e.from = `${s.attachment.start.entityId}:${s.attachment.start.handleId}`;
+        if (s.attachment?.end) e.to = `${s.attachment.end.entityId}:${s.attachment.end.handleId}`;
+        edges.push(e);
+      } else {
+        const n: any = { id: s.id, type: s.sysType ?? (s.type === 'circle' ? 'circle' : 'rect') };
+        n.x = Math.round(s.x); n.y = Math.round(s.y);
+        if (s.type === 'circle') { n.r = Math.round(s.radius); }
+        else { n.w = Math.round(s.width); n.h = Math.round(s.height); }
+        // 'none' marks the rare transparent legacy shape; the default white
+        // fill and black stroke are omitted entirely.
+        if (s.fillColor === undefined) n.fill = 'none';
+        else if (s.fillColor !== 'white') n.fill = s.fillColor;
+        if (s.strokeColor && s.strokeColor !== 'black') n.stroke = s.strokeColor;
+        if (s.strokeWidth && s.strokeWidth !== 1) n.strokeWidth = s.strokeWidth;
+        if (s.text) {
+          const isDefaultFont = s.text.fontSize === 16 && s.text.fontFamily === 'sans-serif' && s.text.color === 'black';
+          n.text = isDefaultFont ? s.text.content : s.text;
+        }
+        nodes.push(n);
+      }
+    }
+    return JSON.stringify({ v: 2, camera: { x: cam.x, y: cam.y, scale: cam.scale }, nodes, edges });
   }
 
   public load(json: string) {

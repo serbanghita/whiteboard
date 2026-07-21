@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whiteboard - Multiplayer (local two-client sim)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background-color: #f5f5f5; overflow: hidden; }
+        canvas { display: block; image-rendering: pixelated; }
+        .who {
+            position: absolute; top: 8px; right: 12px; z-index: 2000;
+            font: bold 13px sans-serif; padding: 2px 10px; border-radius: 10px;
+            color: white;
+        }
+        #status {
+            position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%);
+            z-index: 3000; font: 12px monospace; color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div style="display: flex; width: 100vw; height: 100vh;">
+        <div id="board1" style="flex: 1; border-right: 2px solid #ccc; position: relative;">
+            <span class="who" style="background:#e53935;">Alice</span>
+        </div>
+        <div id="board2" style="flex: 1; position: relative;">
+            <span class="who" style="background:#1a73e8;">Bob</span>
+        </div>
+    </div>
+    <div id="status">connecting…</div>
+    <script src="demo.js"></script>
+    <script>
+        // Local two-client simulation: both boards join the SAME room on the
+        // local server (npm run dev in whiteboard-server, port 3000) as two
+        // different users. Draw in one board - it appears in the other.
+        const SERVER = 'http://localhost:3000';
+        const BOARD_ID = new URLSearchParams(location.search).get('board') || 'local-demo';
+
+        async function join(container, userName, color) {
+            const res = await fetch(`${SERVER}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userName, boardId: BOARD_ID, color }),
+            });
+            const { token, wsUrl } = await res.json();
+            const wb = new window.Whiteboard(container);
+            const plugin = new window.MultiplayerPlugin(wb, { wsUrl, jwtToken: token });
+            plugin.connect();
+            return { wb, plugin };
+        }
+
+        window.addEventListener('load', async () => {
+            try {
+                const a = await join(document.getElementById('board1'), 'Alice', '#e53935');
+                const b = await join(document.getElementById('board2'), 'Bob', '#1a73e8');
+                window.board1 = a.wb; window.plugin1 = a.plugin;
+                window.board2 = b.wb; window.plugin2 = b.plugin;
+                document.getElementById('status').textContent =
+                    `room "${BOARD_ID}" - Alice (left) & Bob (right) connected`;
+            } catch (e) {
+                document.getElementById('status').textContent =
+                    'server not reachable - start it with: cd ../whiteboard-server && npm run dev';
+            }
+        });
+    </script>
+</body>
+</html>

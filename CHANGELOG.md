@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Multiplayer (WIP, locally testable): action-based undo/redo (`HistoryManager` command
+  pattern with rolling diff baseline and version/lock-aware transaction aborts), an
+  `EventEmitter` core API (refcounted pause, singleton blocklist), partial-apply methods
+  (`applyShape`/`removeShape` — remote updates and undo steps never run loadShapes' board-wide
+  reconcile), shape locking (`IsLockedComponent` + hatch/name overlay, lock-aware interaction
+  queries), server-stamped `ZIndexComponent` draw order, `TargetTransformComponent` +
+  dt-based `InterpolationSystem` for smooth remote drags, and `MultiplayerPlugin` (WS default,
+  optional WebRTC scaffold, reconnect backoff, single-payload init). Remote-driven entities
+  (locked or interpolating) are excluded from local history recording, so a peer's drag can
+  never enter this user's undo stack or be re-broadcast as their edit. Local two-client
+  simulator: `dist/multiplayer.html` (two boards, one room) against `whiteboard-server`
+  (`npm run dev`, port 3000; dev JWTs via `POST /login`). Plan + 10-pass adversarial review
+  in `.planning/multiplayer/`.
 - Endpoint re-attach: dragging a line's start/end ring handle now glues the endpoint to nearby
   shapes' connection points and re-attaches it on release (ResizeSystem, sharing the
   `connectionSnapTarget` rule) — previously an endpoint drag could only detach. The other end's

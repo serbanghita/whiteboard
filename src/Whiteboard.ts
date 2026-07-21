@@ -1028,9 +1028,26 @@ export class Whiteboard {
     }
     
     const actions: Action[] = [];
-    
+
     // Check for creates and updates
     for (const [id, postShape] of postState) {
+      // Remote-driven entities must NOT enter the local history: a peer's
+      // drag reaches this board as lock + sync/interpolation, and the
+      // window-level mouseup fires in EVERY Whiteboard on the page - without
+      // this skip, the release edge would misattribute the peer's movement
+      // as a local UPDATE, push it to the undo stack AND re-broadcast it as
+      // this user's edit (stamping the peer's entity with a drifted version
+      // that aborts their undo). Their durable state lands via applyShape,
+      // which maintains the baseline itself.
+      const liveEntity = this.world.getEntity(id);
+      if (liveEntity && (liveEntity.hasComponent(IsLockedComponent) || liveEntity.hasComponent(TargetTransformComponent))) {
+        // Keep the prior baseline entry (or none): the transient interpolated
+        // position must not become a diff base either - applyShape sets the
+        // real one when the peer's durable update lands.
+        const prior = this.preInteractionState.get(id);
+        if (prior) { postState.set(id, prior); } else { postState.delete(id); }
+        continue;
+      }
       const preShape = this.preInteractionState.get(id);
       if (!preShape) {
         actions.push({ type: 'CREATE', entityId: id, componentData: postShape, version: 1 });

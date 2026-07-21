@@ -50,7 +50,7 @@ export default class LineDrawSystem extends System {
         toolState.startY = mouseComp.pressY;
 
         // Create preview entity
-        const entityId = `line-${Date.now()}-${this.entityCounter++}`;
+        const entityId = `line-${crypto.randomUUID()}`;
         const previewEntity = this.world.createEntity(entityId);
         previewEntity.addComponent(LineComponent, {
           x1: mouseComp.pressX,

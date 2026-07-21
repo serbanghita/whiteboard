@@ -57,7 +57,7 @@ export default class RectangleDrawSystem extends System {
         toolState.startY = mouseComp.pressY;
 
         // Create preview entity
-        const entityId = `rectangle-${Date.now()}-${this.entityCounter++}`;
+        const entityId = `rectangle-${crypto.randomUUID()}`;
         const previewEntity = this.world.createEntity(entityId);
         previewEntity.addComponent(RectangleComponent, {
           x: mouseComp.pressX,

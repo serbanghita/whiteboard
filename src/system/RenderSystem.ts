@@ -8,8 +8,11 @@ import { IRenderer } from "../renderer";
 import { getConnectionPoints, getSelectionHandles, HANDLE_RADIUS } from "../handles";
 import CameraComponent from "../component/CameraComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
-import { getInteriorBox } from "../textLayout";
+import { getInteriorBox, getEntityBounds } from "../textLayout";
 import TextTextureCache from "../textRaster";
+import ZIndexComponent from "../component/ZIndexComponent";
+import IsLockedComponent from "../component/IsLockedComponent";
+import { TextureHandle } from "../renderer/IRenderer";
 
 // Selection visuals: a tight blue bounding box around the selected shapes,
 // with gray ring resize handles at its corners. A single selected line gets
@@ -30,6 +33,7 @@ export default class RenderingSystem extends System {
   // Per-entity text textures; retained state lives here, the renderer stays
   // immediate-mode.
   private textCache: TextTextureCache;
+  private hatchTextures: Map<string, TextureHandle> = new Map();
 
   public constructor(
     public world: World,
@@ -67,7 +71,15 @@ export default class RenderingSystem extends System {
     // Shapes. Hovering has no visual effect - feedback only exists for the
     // selected shapes, via the overlay below. Painter's order: each shape's
     // text draws right after the shape, so later shapes still cover it.
-    this.query.execute().forEach((entity) => {
+    
+    const entities = [...this.query.execute().values()];
+    entities.sort((a, b) => {
+      const zA = a.hasComponent(ZIndexComponent) ? a.getComponent(ZIndexComponent).zIndex : 0;
+      const zB = b.hasComponent(ZIndexComponent) ? b.getComponent(ZIndexComponent).zIndex : 0;
+      return zA - zB;
+    });
+
+    entities.forEach((entity) => {
       if (entity.hasComponent(RectangleComponent)) {
         const comp = entity.getComponent(RectangleComponent);
         this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
@@ -97,6 +109,8 @@ export default class RenderingSystem extends System {
           this.drawArrowhead(comp.x1, comp.y1, comp.x2, comp.y2, stroke);
         }
       }
+
+      this.drawLockOverlay(entity, scale, liveTextIds);
     });
 
     this.textCache.sweep(liveTextIds);
@@ -106,6 +120,67 @@ export default class RenderingSystem extends System {
 
     // Snap targets while a connection line is being dragged - on top of all.
     this.renderConnectionTargets(scale);
+  }
+
+  private getHatchTexture(color: string): TextureHandle {
+    if (this.hatchTextures.has(color)) return this.hatchTextures.get(color)!;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const ctx = canvas.getContext('2d')!;
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-1, 9); ctx.lineTo(9, -1);
+    ctx.moveTo(-1, 1); ctx.lineTo(1, -1);
+    ctx.moveTo(7, 9); ctx.lineTo(9, 7);
+    ctx.stroke();
+    
+    const handle = this.renderer.createTextureFromCanvas(canvas);
+    this.hatchTextures.set(color, handle);
+    return handle;
+  }
+
+  private drawLockOverlay(entity: Entity, scale: number, liveTextIds: Set<string>): void {
+    if (!entity.hasComponent(IsLockedComponent)) return;
+    const lockInfo = entity.getComponent(IsLockedComponent);
+    
+    let bounds;
+    if (entity.hasComponent(RectangleComponent)) {
+      const c = entity.getComponent(RectangleComponent);
+      bounds = { x: c.x, y: c.y, width: c.width, height: c.height };
+    } else if (entity.hasComponent(CircleComponent)) {
+      const c = entity.getComponent(CircleComponent);
+      bounds = { x: c.x - c.radius, y: c.y - c.radius, width: c.radius * 2, height: c.radius * 2 };
+    } else if (entity.hasComponent(LineComponent)) {
+      const c = entity.getComponent(LineComponent);
+      const minX = Math.min(c.x1, c.x2);
+      const minY = Math.min(c.y1, c.y2);
+      bounds = { x: minX, y: minY, width: Math.abs(c.x2 - c.x1), height: Math.abs(c.y2 - c.y1) };
+    }
+    
+    if (!bounds) return;
+    
+    // Draw hatch overlay
+    const hatch = this.getHatchTexture(lockInfo.color);
+    this.renderer.texturedQuad(hatch, bounds.x, bounds.y, bounds.width, bounds.height);
+    
+    // Draw truncated name
+    let name = lockInfo.userName;
+    if (name.length > 12) name = name.substring(0, 10) + '...';
+    
+    const style = { content: name, fontSize: 12, fontFamily: 'sans-serif', color: lockInfo.color };
+    const nameBox = { x: bounds.x, y: bounds.y - 16, width: 100, height: 16 };
+    const textId = `lock_${entity.id}`;
+    liveTextIds.add(textId);
+    
+    const texture = this.textCache.get(textId, style, nameBox, scale, false);
+    if (texture) {
+      this.renderer.texturedQuad(texture, nameBox.x, nameBox.y, nameBox.width, nameBox.height);
+    }
   }
 
   /**

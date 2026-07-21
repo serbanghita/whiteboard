@@ -1,19 +1,45 @@
 "use strict";
 (() => {
-  // ../gamedev-published-repos/ecs/src/Component.ts
-  var Component = class {
-    constructor(properties) {
-      this.properties = properties;
-    }
-    // Lazy init / Re-init.
-    init(properties) {
-      this.properties = properties || {};
-    }
-    // Use this when saving the state.
-    serialize() {
-      return this.properties;
-    }
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __esm = (fn, res) => function __init() {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   };
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // ../gamedev-published-repos/ecs/src/Component.ts
+  var Component;
+  var init_Component = __esm({
+    "../gamedev-published-repos/ecs/src/Component.ts"() {
+      Component = class {
+        constructor(properties) {
+          this.properties = properties;
+        }
+        // Lazy init / Re-init.
+        init(properties) {
+          this.properties = properties || {};
+        }
+        // Use this when saving the state.
+        serialize() {
+          return this.properties;
+        }
+      };
+    }
+  });
 
   // ../gamedev-published-repos/ecs/node_modules/@serbanghita-gamedev/bitmask/src/bitmask.ts
   function addBit(bitmasks, bit) {
@@ -30,514 +56,657 @@
   function hasAnyOfBits(bitmask, bits) {
     return (bitmask & bits) !== 0n;
   }
+  var init_bitmask = __esm({
+    "../gamedev-published-repos/ecs/node_modules/@serbanghita-gamedev/bitmask/src/bitmask.ts"() {
+    }
+  });
+
+  // ../gamedev-published-repos/ecs/node_modules/@serbanghita-gamedev/bitmask/src/index.ts
+  var init_src = __esm({
+    "../gamedev-published-repos/ecs/node_modules/@serbanghita-gamedev/bitmask/src/index.ts"() {
+      init_bitmask();
+    }
+  });
 
   // ../gamedev-published-repos/ecs/src/ComponentRegistry.ts
-  var ComponentRegistry = class _ComponentRegistry {
-    static instance;
-    bitmask = 1n;
-    components = /* @__PURE__ */ new Map();
-    componentGroups = /* @__PURE__ */ new Map();
-    componentToGroupMap = /* @__PURE__ */ new Map();
-    bitmaskToComponentMap = /* @__PURE__ */ new Map();
-    constructor() {
+  var ComponentRegistry;
+  var init_ComponentRegistry = __esm({
+    "../gamedev-published-repos/ecs/src/ComponentRegistry.ts"() {
+      init_src();
+      ComponentRegistry = class _ComponentRegistry {
+        static instance;
+        bitmask = 1n;
+        components = /* @__PURE__ */ new Map();
+        componentGroups = /* @__PURE__ */ new Map();
+        componentToGroupMap = /* @__PURE__ */ new Map();
+        bitmaskToComponentMap = /* @__PURE__ */ new Map();
+        constructor() {
+        }
+        static getInstance() {
+          if (!_ComponentRegistry.instance) {
+            _ComponentRegistry.instance = new _ComponentRegistry();
+          }
+          return _ComponentRegistry.instance;
+        }
+        registerComponent(componentDeclaration) {
+          if (componentDeclaration.prototype && typeof componentDeclaration.prototype === "object") {
+            const newBitmask = this.bitmask <<= 1n;
+            Object.defineProperty(componentDeclaration.prototype, "bitmask", {
+              value: newBitmask,
+              writable: true,
+              configurable: true
+            });
+            this.bitmaskToComponentMap.set(newBitmask, componentDeclaration);
+          }
+          this.components.set(componentDeclaration.prototype.constructor.name, componentDeclaration);
+          return componentDeclaration;
+        }
+        registerComponents(componentDeclarations) {
+          componentDeclarations.forEach((declaration) => {
+            this.registerComponent(declaration);
+          });
+        }
+        getComponent(name) {
+          const component = this.components.get(name);
+          if (!component) {
+            throw new Error(`Component requested ${name} is non-existent.`);
+          }
+          return component;
+        }
+        getComponentByBitmask(bitmask) {
+          return this.bitmaskToComponentMap.get(bitmask);
+        }
+        registerComponentGroup(groupName, components, options = {}) {
+          let groupBitmask = 0n;
+          for (const component of components) {
+            groupBitmask = addBit(groupBitmask, component.prototype.bitmask);
+            this.componentToGroupMap.set(component.prototype.bitmask, groupName);
+          }
+          this.componentGroups.set(groupName, { components, bitmask: groupBitmask, options });
+        }
+        getComponentGroup(groupName) {
+          return this.componentGroups.get(groupName);
+        }
+        getComponentGroupName(componentBitmask) {
+          return this.componentToGroupMap.get(componentBitmask);
+        }
+        getLastBitmask() {
+          return this.bitmask;
+        }
+        reset() {
+          _ComponentRegistry.instance = new _ComponentRegistry();
+        }
+      };
     }
-    static getInstance() {
-      if (!_ComponentRegistry.instance) {
-        _ComponentRegistry.instance = new _ComponentRegistry();
-      }
-      return _ComponentRegistry.instance;
-    }
-    registerComponent(componentDeclaration) {
-      if (componentDeclaration.prototype && typeof componentDeclaration.prototype === "object") {
-        const newBitmask = this.bitmask <<= 1n;
-        Object.defineProperty(componentDeclaration.prototype, "bitmask", {
-          value: newBitmask,
-          writable: true,
-          configurable: true
-        });
-        this.bitmaskToComponentMap.set(newBitmask, componentDeclaration);
-      }
-      this.components.set(componentDeclaration.prototype.constructor.name, componentDeclaration);
-      return componentDeclaration;
-    }
-    registerComponents(componentDeclarations) {
-      componentDeclarations.forEach((declaration) => {
-        this.registerComponent(declaration);
-      });
-    }
-    getComponent(name) {
-      const component = this.components.get(name);
-      if (!component) {
-        throw new Error(`Component requested ${name} is non-existent.`);
-      }
-      return component;
-    }
-    getComponentByBitmask(bitmask) {
-      return this.bitmaskToComponentMap.get(bitmask);
-    }
-    registerComponentGroup(groupName, components, options = {}) {
-      let groupBitmask = 0n;
-      for (const component of components) {
-        groupBitmask = addBit(groupBitmask, component.prototype.bitmask);
-        this.componentToGroupMap.set(component.prototype.bitmask, groupName);
-      }
-      this.componentGroups.set(groupName, { components, bitmask: groupBitmask, options });
-    }
-    getComponentGroup(groupName) {
-      return this.componentGroups.get(groupName);
-    }
-    getComponentGroupName(componentBitmask) {
-      return this.componentToGroupMap.get(componentBitmask);
-    }
-    getLastBitmask() {
-      return this.bitmask;
-    }
-    reset() {
-      _ComponentRegistry.instance = new _ComponentRegistry();
-    }
-  };
+  });
 
   // ../gamedev-published-repos/ecs/src/Entity.ts
-  var Entity = class {
-    constructor(world, id) {
-      this.world = world;
-      this.id = id;
-    }
-    componentsBitmask = 0n;
-    components = /* @__PURE__ */ new Map();
-    addComponent(componentDeclaration, ...args) {
-      const properties = args[0] ?? {};
-      let instance = this.components.get(componentDeclaration.name);
-      if (instance) {
-        instance.init(properties);
-      } else {
-        instance = new componentDeclaration(properties);
-      }
-      if (typeof instance.bitmask === "undefined") {
-        throw new Error(`Please register the component ${instance.constructor.name} in the ComponentRegistry.`);
-      }
-      const componentRegistry = this.world.declarations.components;
-      const groupName = componentRegistry.getComponentGroupName(instance.bitmask);
-      if (groupName) {
-        const group = componentRegistry.getComponentGroup(groupName);
-        if (group && group.options.mutuallyExclusive) {
-          const conflictingBitmask = this.componentsBitmask & group.bitmask;
-          if (conflictingBitmask !== 0n) {
-            const conflictingComponent = componentRegistry.getComponentByBitmask(conflictingBitmask);
-            if (conflictingComponent) {
-              this.removeComponent(conflictingComponent);
+  var Entity;
+  var init_Entity = __esm({
+    "../gamedev-published-repos/ecs/src/Entity.ts"() {
+      init_src();
+      Entity = class {
+        constructor(world, id) {
+          this.world = world;
+          this.id = id;
+        }
+        componentsBitmask = 0n;
+        components = /* @__PURE__ */ new Map();
+        addComponent(componentDeclaration, ...args) {
+          const properties = args[0] ?? {};
+          let instance = this.components.get(componentDeclaration.name);
+          if (instance) {
+            instance.init(properties);
+          } else {
+            instance = new componentDeclaration(properties);
+          }
+          if (typeof instance.bitmask === "undefined") {
+            throw new Error(`Please register the component ${instance.constructor.name} in the ComponentRegistry.`);
+          }
+          const componentRegistry = this.world.declarations.components;
+          const groupName = componentRegistry.getComponentGroupName(instance.bitmask);
+          if (groupName) {
+            const group = componentRegistry.getComponentGroup(groupName);
+            if (group && group.options.mutuallyExclusive) {
+              const conflictingBitmask = this.componentsBitmask & group.bitmask;
+              if (conflictingBitmask !== 0n) {
+                const conflictingComponent = componentRegistry.getComponentByBitmask(conflictingBitmask);
+                if (conflictingComponent) {
+                  this.removeComponent(conflictingComponent);
+                }
+              }
             }
           }
+          this.components.set(componentDeclaration.name, instance);
+          this.componentsBitmask = addBit(this.componentsBitmask, instance.bitmask);
+          this.onAddComponent(instance);
+          return this;
         }
-      }
-      this.components.set(componentDeclaration.name, instance);
-      this.componentsBitmask = addBit(this.componentsBitmask, instance.bitmask);
-      this.onAddComponent(instance);
-      return this;
+        getComponent(declaration) {
+          const instance = this.components.get(declaration.name);
+          if (!instance) {
+            throw new Error(`Component requested ${declaration.name} is non-existent.`);
+          }
+          return instance;
+        }
+        getComponentByName(name) {
+          const instance = this.components.get(name);
+          if (!instance) {
+            throw new Error(`Component requested ${name} is non-existent.`);
+          }
+          return instance;
+        }
+        removeComponent(componentDeclaration) {
+          if (!this.hasComponent(componentDeclaration)) {
+            return this;
+          }
+          const component = this.getComponent(componentDeclaration);
+          if (typeof component.bitmask === "undefined") {
+            throw new Error(`Component ${componentDeclaration.name} has no bitmask.`);
+          }
+          this.componentsBitmask = removeBit(this.componentsBitmask, component.bitmask);
+          this.components.delete(componentDeclaration.name);
+          this.onRemoveComponent(component);
+          return this;
+        }
+        hasComponent(componentDeclaration) {
+          if (typeof componentDeclaration.prototype.bitmask === "undefined") {
+            throw new Error(`Please register the component ${componentDeclaration.name} in the ComponentRegistry.`);
+          }
+          return hasBit(this.componentsBitmask, componentDeclaration.prototype.bitmask);
+        }
+        onAddComponent(newComponent) {
+          this.world.notifyQueriesOfEntityComponentAddition(this, newComponent);
+          return this;
+        }
+        onRemoveComponent(oldComponent) {
+          this.world.notifyQueriesOfEntityComponentRemoval(this, oldComponent);
+        }
+      };
     }
-    getComponent(declaration) {
-      const instance = this.components.get(declaration.name);
-      if (!instance) {
-        throw new Error(`Component requested ${declaration.name} is non-existent.`);
-      }
-      return instance;
-    }
-    getComponentByName(name) {
-      const instance = this.components.get(name);
-      if (!instance) {
-        throw new Error(`Component requested ${name} is non-existent.`);
-      }
-      return instance;
-    }
-    removeComponent(componentDeclaration) {
-      if (!this.hasComponent(componentDeclaration)) {
-        return this;
-      }
-      const component = this.getComponent(componentDeclaration);
-      if (typeof component.bitmask === "undefined") {
-        throw new Error(`Component ${componentDeclaration.name} has no bitmask.`);
-      }
-      this.componentsBitmask = removeBit(this.componentsBitmask, component.bitmask);
-      this.components.delete(componentDeclaration.name);
-      this.onRemoveComponent(component);
-      return this;
-    }
-    hasComponent(componentDeclaration) {
-      if (typeof componentDeclaration.prototype.bitmask === "undefined") {
-        throw new Error(`Please register the component ${componentDeclaration.name} in the ComponentRegistry.`);
-      }
-      return hasBit(this.componentsBitmask, componentDeclaration.prototype.bitmask);
-    }
-    onAddComponent(newComponent) {
-      this.world.notifyQueriesOfEntityComponentAddition(this, newComponent);
-      return this;
-    }
-    onRemoveComponent(oldComponent) {
-      this.world.notifyQueriesOfEntityComponentRemoval(this, oldComponent);
-    }
-  };
+  });
 
   // ../gamedev-published-repos/ecs/src/Query.ts
-  var Query = class {
-    /**
-     * Create a "query" of Entities that contain certain Components set.
-     *
-     * @param world
-     * @param id
-     * @param filters
-     */
-    constructor(world, id, filters) {
-      this.world = world;
-      this.id = id;
-      this.filters = filters;
-      this.checkIfComponentsAreRegistered();
-      this.processFiltersAsBitMasks();
-    }
-    all = 0n;
-    any = 0n;
-    none = 0n;
-    dataSet = /* @__PURE__ */ new Map();
-    checkIfComponentsAreRegistered() {
-      [
-        ...new Set(
-          Object.values(this.filters).reduce((acc, value) => {
-            return acc.concat(value);
-          }, [])
-        )
-      ].forEach((component) => {
-        if (typeof component.prototype.bitmask === "undefined") {
-          throw new Error(`Please register the component ${component.name} in the ComponentRegistry.`);
+  var Query;
+  var init_Query = __esm({
+    "../gamedev-published-repos/ecs/src/Query.ts"() {
+      init_src();
+      Query = class {
+        /**
+         * Create a "query" of Entities that contain certain Components set.
+         *
+         * @param world
+         * @param id
+         * @param filters
+         */
+        constructor(world, id, filters) {
+          this.world = world;
+          this.id = id;
+          this.filters = filters;
+          this.checkIfComponentsAreRegistered();
+          this.processFiltersAsBitMasks();
         }
-      });
-    }
-    processFiltersAsBitMasks() {
-      if (this.filters.all) {
-        this.filters.all.forEach((component) => {
-          this.all = addBit(this.all, component.prototype.bitmask);
-        });
-      }
-      if (this.filters.any) {
-        this.filters.any.forEach((component) => {
-          this.any = addBit(this.any, component.prototype.bitmask);
-        });
-      }
-      if (this.filters.none) {
-        this.filters.none.forEach((component) => {
-          this.none = addBit(this.none, component.prototype.bitmask);
-        });
-      }
-    }
-    init() {
-      this.world.entities.forEach((entity) => {
-        this.candidate(entity);
-      });
-    }
-    /**
-     * Returns the entities that correspond to the filters given.
-     * The set is maintained reactively via World notifications.
-     */
-    execute() {
-      return this.dataSet;
-    }
-    match(entity) {
-      if (this.none !== 0n && hasAnyOfBits(entity.componentsBitmask, this.none)) {
-        return false;
-      }
-      if (this.all !== 0n && !hasBit(entity.componentsBitmask, this.all)) {
-        return false;
-      }
-      if (this.any !== 0n && !hasAnyOfBits(entity.componentsBitmask, this.any)) {
-        return false;
-      }
-      return true;
-    }
-    candidate(entity) {
-      if (this.match(entity)) {
-        this.dataSet.set(entity.id, entity);
-        return true;
-      }
-      return false;
-    }
-    add(entity) {
-      this.dataSet.set(entity.id, entity);
-    }
-    remove(entity) {
-      this.dataSet.delete(entity.id);
-    }
-  };
-
-  // ../gamedev-published-repos/ecs/src/System.ts
-  var System = class {
-    constructor(world, query, ..._args) {
-      this.world = world;
-      this.query = query;
-      this.ticks = 0;
-    }
-    settings = { ticksToRunBeforeExit: -1, runEveryTicks: 0 };
-    ticks = 0;
-    // Number of times update() has actually run (drives settings.ticksToRunBeforeExit).
-    updatesRun = 0;
-    // User-facing pause flag; never mutated by the engine.
-    isPaused = false;
-    runEveryTicks(ticks) {
-      this.settings.runEveryTicks = ticks;
-    }
-    runOnlyOnce() {
-      this.settings.ticksToRunBeforeExit = 1;
-      return this;
-    }
-    // Returns true if update() should run on this tick (settings.runEveryTicks cadence).
-    preUpdate() {
-      this.ticks++;
-      if (this.settings.runEveryTicks > 0) {
-        if (this.ticks < this.settings.runEveryTicks) {
+        all = 0n;
+        any = 0n;
+        none = 0n;
+        dataSet = /* @__PURE__ */ new Map();
+        checkIfComponentsAreRegistered() {
+          [
+            ...new Set(
+              Object.values(this.filters).reduce((acc, value) => {
+                return acc.concat(value);
+              }, [])
+            )
+          ].forEach((component) => {
+            if (typeof component.prototype.bitmask === "undefined") {
+              throw new Error(`Please register the component ${component.name} in the ComponentRegistry.`);
+            }
+          });
+        }
+        processFiltersAsBitMasks() {
+          if (this.filters.all) {
+            this.filters.all.forEach((component) => {
+              this.all = addBit(this.all, component.prototype.bitmask);
+            });
+          }
+          if (this.filters.any) {
+            this.filters.any.forEach((component) => {
+              this.any = addBit(this.any, component.prototype.bitmask);
+            });
+          }
+          if (this.filters.none) {
+            this.filters.none.forEach((component) => {
+              this.none = addBit(this.none, component.prototype.bitmask);
+            });
+          }
+        }
+        init() {
+          this.world.entities.forEach((entity) => {
+            this.candidate(entity);
+          });
+        }
+        /**
+         * Returns the entities that correspond to the filters given.
+         * The set is maintained reactively via World notifications.
+         */
+        execute() {
+          return this.dataSet;
+        }
+        match(entity) {
+          if (this.none !== 0n && hasAnyOfBits(entity.componentsBitmask, this.none)) {
+            return false;
+          }
+          if (this.all !== 0n && !hasBit(entity.componentsBitmask, this.all)) {
+            return false;
+          }
+          if (this.any !== 0n && !hasAnyOfBits(entity.componentsBitmask, this.any)) {
+            return false;
+          }
+          return true;
+        }
+        candidate(entity) {
+          if (this.match(entity)) {
+            this.dataSet.set(entity.id, entity);
+            return true;
+          }
           return false;
         }
-        this.ticks = 0;
-      }
-      return true;
+        add(entity) {
+          this.dataSet.set(entity.id, entity);
+        }
+        remove(entity) {
+          this.dataSet.delete(entity.id);
+        }
+      };
     }
-    update(_now = 0) {
-      throw new Error(`System update() must be implemented.`);
+  });
+
+  // ../gamedev-published-repos/ecs/src/System.ts
+  var System;
+  var init_System = __esm({
+    "../gamedev-published-repos/ecs/src/System.ts"() {
+      System = class {
+        constructor(world, query, ..._args) {
+          this.world = world;
+          this.query = query;
+          this.ticks = 0;
+        }
+        settings = { ticksToRunBeforeExit: -1, runEveryTicks: 0 };
+        ticks = 0;
+        // Number of times update() has actually run (drives settings.ticksToRunBeforeExit).
+        updatesRun = 0;
+        // User-facing pause flag; never mutated by the engine.
+        isPaused = false;
+        runEveryTicks(ticks) {
+          this.settings.runEveryTicks = ticks;
+        }
+        runOnlyOnce() {
+          this.settings.ticksToRunBeforeExit = 1;
+          return this;
+        }
+        // Returns true if update() should run on this tick (settings.runEveryTicks cadence).
+        preUpdate() {
+          this.ticks++;
+          if (this.settings.runEveryTicks > 0) {
+            if (this.ticks < this.settings.runEveryTicks) {
+              return false;
+            }
+            this.ticks = 0;
+          }
+          return true;
+        }
+        update(_now = 0) {
+          throw new Error(`System update() must be implemented.`);
+        }
+      };
     }
-  };
+  });
 
   // ../gamedev-published-repos/ecs/src/World.ts
-  var World = class {
-    declarations = {
-      components: ComponentRegistry.getInstance()
-    };
-    queries = /* @__PURE__ */ new Map();
-    entities = /* @__PURE__ */ new Map();
-    systems = /* @__PURE__ */ new Map();
-    fps = 0;
-    frameDuration = 0;
-    frameNo = 0;
-    fpsCap = 0;
-    fpsCapDuration = 0;
-    callbackFnAfterSystemsUpdate = void 0;
-    now = 0;
-    _animationFrameId = 0;
-    _paused = false;
-    // Shortcut to ComponentRegistry
-    registerComponent(componentDeclaration) {
-      this.declarations.components.registerComponent(componentDeclaration);
-    }
-    // Shortcut to ComponentRegistry
-    registerComponents(componentDeclarations) {
-      this.declarations.components.registerComponents(componentDeclarations);
-    }
-    createQuery(id, filters) {
-      const query = new Query(this, id, filters);
-      const existing = this.queries.get(id);
-      if (existing) {
-        if (existing.all === query.all && existing.any === query.any && existing.none === query.none) {
-          return existing;
+  var World;
+  var init_World = __esm({
+    "../gamedev-published-repos/ecs/src/World.ts"() {
+      init_src();
+      init_Entity();
+      init_Query();
+      init_ComponentRegistry();
+      World = class {
+        declarations = {
+          components: ComponentRegistry.getInstance()
+        };
+        queries = /* @__PURE__ */ new Map();
+        entities = /* @__PURE__ */ new Map();
+        systems = /* @__PURE__ */ new Map();
+        fps = 0;
+        frameDuration = 0;
+        frameNo = 0;
+        fpsCap = 0;
+        fpsCapDuration = 0;
+        callbackFnAfterSystemsUpdate = void 0;
+        now = 0;
+        _animationFrameId = 0;
+        _paused = false;
+        // Shortcut to ComponentRegistry
+        registerComponent(componentDeclaration) {
+          this.declarations.components.registerComponent(componentDeclaration);
         }
-        throw new Error(`A query with the id "${id}" already exists with different filters.`);
-      }
-      this.queries.set(query.id, query);
-      query.init();
-      return query;
-    }
-    removeQuery(id) {
-      this.queries.delete(id);
-    }
-    getQuery(id) {
-      const query = this.queries.get(id);
-      if (!query) {
-        throw new Error(`There is not query registered with the id: ${id}.`);
-      }
-      return query;
-    }
-    createEntity(id) {
-      if (this.entities.has(id)) {
-        throw new Error(`Entity with the id "${id}" already exists.`);
-      }
-      const entity = new Entity(this, id);
-      this.entities.set(entity.id, entity);
-      this.notifyQueriesOfEntityCandidacy(entity);
-      return entity;
-    }
-    getEntity(id) {
-      return this.entities.get(id);
-    }
-    removeEntity(id) {
-      const entity = this.entities.get(id);
-      if (!entity) {
-        return;
-      }
-      this.notifyQueriesOfEntityRemoval(entity);
-      this.entities.delete(id);
-    }
-    createSystem(systemDeclaration, query, ...args) {
-      const systemInstance = new systemDeclaration(this, query, ...args);
-      this.systems.set(systemDeclaration, systemInstance);
-      return systemInstance;
-    }
-    getSystem(system) {
-      const systemInstance = this.systems.get(system);
-      if (!systemInstance) {
-        throw new Error(`There is no system instance with the id ${system.name}`);
-      }
-      return systemInstance;
-    }
-    removeSystem(system) {
-      this.systems.delete(system);
-    }
-    notifyQueriesOfEntityCandidacy(entity) {
-      this.queries.forEach((query) => {
-        query.candidate(entity);
-      });
-    }
-    notifyQueriesOfEntityRemoval(entity) {
-      this.queries.forEach((query) => {
-        query.remove(entity);
-      });
-    }
-    /**
-     * 1. Finds all Queries that have the Component in their filter.
-     * 2. Add candidacy of the Entity to the list of Entities inside the Query.
-     * 3. Remove Entity from Queries that have the Component in their 'none' filter.
-     *
-     * @param entity
-     * @param component
-     */
-    notifyQueriesOfEntityComponentAddition(entity, component) {
-      this.queries.forEach((query) => {
-        if (hasBit(query.none, component.bitmask)) {
-          query.remove(entity);
-          return;
+        // Shortcut to ComponentRegistry
+        registerComponents(componentDeclarations) {
+          this.declarations.components.registerComponents(componentDeclarations);
         }
-        if (hasBit(query.all, component.bitmask) || hasBit(query.any, component.bitmask)) {
-          query.candidate(entity);
-        }
-      });
-    }
-    /**
-     * 1. Finds all Queries that have the Component in their filter.
-     * 2. Remove the Entity from the list of Entities inside the Query.
-     * 3. Re-evaluate Entity candidacy for Queries that have the Component in their 'none' filter.
-     *
-     * @param entity
-     * @param component
-     */
-    notifyQueriesOfEntityComponentRemoval(entity, component) {
-      this.queries.forEach((query) => {
-        if (hasBit(query.all, component.bitmask)) {
-          query.remove(entity);
-          return;
-        }
-        if (hasBit(query.any, component.bitmask)) {
-          query.remove(entity);
-          query.candidate(entity);
-          return;
-        }
-        if (hasBit(query.none, component.bitmask)) {
-          query.candidate(entity);
-        }
-      });
-    }
-    start(options) {
-      if (options) {
-        this.fpsCap = options.fpsCap || 0;
-        if (options.callbackFnAfterSystemsUpdate) {
-          this.callbackFnAfterSystemsUpdate = options.callbackFnAfterSystemsUpdate;
-        }
-      }
-      [...this.systems].filter(([, systemInstance]) => systemInstance.settings.ticksToRunBeforeExit === 1).forEach(([systemDeclaration, systemInstance]) => {
-        systemInstance.update();
-        this.systems.delete(systemDeclaration);
-      });
-      this.startLoop();
-    }
-    startLoop() {
-      let frameTimeDiff = 0;
-      let lastFrameTime = -1;
-      let fps = 0;
-      let frames = 0;
-      let lastFpsTime = -1;
-      const fpsCap = this.fpsCap;
-      const fpsCapDurationTime = fpsCap > 0 ? 1e3 / fpsCap : 0;
-      const FPS_CAP_TOLERANCE = 1;
-      let fpsCapAccumulator = 0;
-      let fpsCapLastFrameTime = -1;
-      const loop = (now) => {
-        this.now = now;
-        if (this._paused) {
-          lastFrameTime = -1;
-          lastFpsTime = -1;
-          fpsCapAccumulator = 0;
-          fpsCapLastFrameTime = -1;
-          frames = 0;
-          this._animationFrameId = requestAnimationFrame(loop);
-          return;
-        }
-        if (fpsCap > 0) {
-          if (fpsCapLastFrameTime !== -1) {
-            fpsCapAccumulator += now - fpsCapLastFrameTime;
+        createQuery(id, filters) {
+          const query = new Query(this, id, filters);
+          const existing = this.queries.get(id);
+          if (existing) {
+            if (existing.all === query.all && existing.any === query.any && existing.none === query.none) {
+              return existing;
+            }
+            throw new Error(`A query with the id "${id}" already exists with different filters.`);
           }
-          fpsCapLastFrameTime = now;
-          if (fpsCapAccumulator < fpsCapDurationTime - FPS_CAP_TOLERANCE) {
-            this._animationFrameId = requestAnimationFrame(loop);
+          this.queries.set(query.id, query);
+          query.init();
+          return query;
+        }
+        removeQuery(id) {
+          this.queries.delete(id);
+        }
+        getQuery(id) {
+          const query = this.queries.get(id);
+          if (!query) {
+            throw new Error(`There is not query registered with the id: ${id}.`);
+          }
+          return query;
+        }
+        createEntity(id) {
+          if (this.entities.has(id)) {
+            throw new Error(`Entity with the id "${id}" already exists.`);
+          }
+          const entity = new Entity(this, id);
+          this.entities.set(entity.id, entity);
+          this.notifyQueriesOfEntityCandidacy(entity);
+          return entity;
+        }
+        getEntity(id) {
+          return this.entities.get(id);
+        }
+        removeEntity(id) {
+          const entity = this.entities.get(id);
+          if (!entity) {
             return;
           }
-          fpsCapAccumulator -= fpsCapDurationTime;
-          if (fpsCapAccumulator > fpsCapDurationTime) fpsCapAccumulator = 0;
+          this.notifyQueriesOfEntityRemoval(entity);
+          this.entities.delete(id);
         }
-        frames++;
-        this.frameNo++;
-        if (lastFrameTime === -1) {
-          lastFrameTime = now;
+        createSystem(systemDeclaration, query, ...args) {
+          const systemInstance = new systemDeclaration(this, query, ...args);
+          this.systems.set(systemDeclaration, systemInstance);
+          return systemInstance;
         }
-        frameTimeDiff = now - lastFrameTime;
-        lastFrameTime = now;
-        if (lastFpsTime === -1) {
-          lastFpsTime = now;
-        }
-        if (now - lastFpsTime >= 1e3) {
-          fps = frames;
-          frames = 0;
-          lastFpsTime = now;
-        }
-        this.fps = fps;
-        this.frameDuration = frameTimeDiff;
-        this.systems.forEach((system, systemDeclaration) => {
-          if (system.isPaused || !system.preUpdate()) {
-            return;
+        getSystem(system) {
+          const systemInstance = this.systems.get(system);
+          if (!systemInstance) {
+            throw new Error(`There is no system instance with the id ${system.name}`);
           }
-          system.update(now);
-          if (system.settings.ticksToRunBeforeExit > 0 && ++system.updatesRun >= system.settings.ticksToRunBeforeExit) {
+          return systemInstance;
+        }
+        removeSystem(system) {
+          this.systems.delete(system);
+        }
+        notifyQueriesOfEntityCandidacy(entity) {
+          this.queries.forEach((query) => {
+            query.candidate(entity);
+          });
+        }
+        notifyQueriesOfEntityRemoval(entity) {
+          this.queries.forEach((query) => {
+            query.remove(entity);
+          });
+        }
+        /**
+         * 1. Finds all Queries that have the Component in their filter.
+         * 2. Add candidacy of the Entity to the list of Entities inside the Query.
+         * 3. Remove Entity from Queries that have the Component in their 'none' filter.
+         *
+         * @param entity
+         * @param component
+         */
+        notifyQueriesOfEntityComponentAddition(entity, component) {
+          this.queries.forEach((query) => {
+            if (hasBit(query.none, component.bitmask)) {
+              query.remove(entity);
+              return;
+            }
+            if (hasBit(query.all, component.bitmask) || hasBit(query.any, component.bitmask)) {
+              query.candidate(entity);
+            }
+          });
+        }
+        /**
+         * 1. Finds all Queries that have the Component in their filter.
+         * 2. Remove the Entity from the list of Entities inside the Query.
+         * 3. Re-evaluate Entity candidacy for Queries that have the Component in their 'none' filter.
+         *
+         * @param entity
+         * @param component
+         */
+        notifyQueriesOfEntityComponentRemoval(entity, component) {
+          this.queries.forEach((query) => {
+            if (hasBit(query.all, component.bitmask)) {
+              query.remove(entity);
+              return;
+            }
+            if (hasBit(query.any, component.bitmask)) {
+              query.remove(entity);
+              query.candidate(entity);
+              return;
+            }
+            if (hasBit(query.none, component.bitmask)) {
+              query.candidate(entity);
+            }
+          });
+        }
+        start(options) {
+          if (options) {
+            this.fpsCap = options.fpsCap || 0;
+            if (options.callbackFnAfterSystemsUpdate) {
+              this.callbackFnAfterSystemsUpdate = options.callbackFnAfterSystemsUpdate;
+            }
+          }
+          [...this.systems].filter(([, systemInstance]) => systemInstance.settings.ticksToRunBeforeExit === 1).forEach(([systemDeclaration, systemInstance]) => {
+            systemInstance.update();
             this.systems.delete(systemDeclaration);
-          }
-        });
-        if (this.callbackFnAfterSystemsUpdate) {
-          this.callbackFnAfterSystemsUpdate();
+          });
+          this.startLoop();
         }
-        this._animationFrameId = requestAnimationFrame(loop);
+        startLoop() {
+          let frameTimeDiff = 0;
+          let lastFrameTime = -1;
+          let fps = 0;
+          let frames = 0;
+          let lastFpsTime = -1;
+          const fpsCap = this.fpsCap;
+          const fpsCapDurationTime = fpsCap > 0 ? 1e3 / fpsCap : 0;
+          const FPS_CAP_TOLERANCE = 1;
+          let fpsCapAccumulator = 0;
+          let fpsCapLastFrameTime = -1;
+          const loop = (now) => {
+            this.now = now;
+            if (this._paused) {
+              lastFrameTime = -1;
+              lastFpsTime = -1;
+              fpsCapAccumulator = 0;
+              fpsCapLastFrameTime = -1;
+              frames = 0;
+              this._animationFrameId = requestAnimationFrame(loop);
+              return;
+            }
+            if (fpsCap > 0) {
+              if (fpsCapLastFrameTime !== -1) {
+                fpsCapAccumulator += now - fpsCapLastFrameTime;
+              }
+              fpsCapLastFrameTime = now;
+              if (fpsCapAccumulator < fpsCapDurationTime - FPS_CAP_TOLERANCE) {
+                this._animationFrameId = requestAnimationFrame(loop);
+                return;
+              }
+              fpsCapAccumulator -= fpsCapDurationTime;
+              if (fpsCapAccumulator > fpsCapDurationTime) fpsCapAccumulator = 0;
+            }
+            frames++;
+            this.frameNo++;
+            if (lastFrameTime === -1) {
+              lastFrameTime = now;
+            }
+            frameTimeDiff = now - lastFrameTime;
+            lastFrameTime = now;
+            if (lastFpsTime === -1) {
+              lastFpsTime = now;
+            }
+            if (now - lastFpsTime >= 1e3) {
+              fps = frames;
+              frames = 0;
+              lastFpsTime = now;
+            }
+            this.fps = fps;
+            this.frameDuration = frameTimeDiff;
+            this.systems.forEach((system, systemDeclaration) => {
+              if (system.isPaused || !system.preUpdate()) {
+                return;
+              }
+              system.update(now);
+              if (system.settings.ticksToRunBeforeExit > 0 && ++system.updatesRun >= system.settings.ticksToRunBeforeExit) {
+                this.systems.delete(systemDeclaration);
+              }
+            });
+            if (this.callbackFnAfterSystemsUpdate) {
+              this.callbackFnAfterSystemsUpdate();
+            }
+            this._animationFrameId = requestAnimationFrame(loop);
+          };
+          this._animationFrameId = requestAnimationFrame(loop);
+        }
+        pause() {
+          this._paused = true;
+        }
+        resume() {
+          this._paused = false;
+        }
+        stop() {
+          if (this._animationFrameId) {
+            cancelAnimationFrame(this._animationFrameId);
+            this._animationFrameId = 0;
+          }
+        }
+        clear() {
+          this.stop();
+          this.entities.clear();
+          this.queries.clear();
+          this.systems.clear();
+          this.callbackFnAfterSystemsUpdate = void 0;
+        }
       };
-      this._animationFrameId = requestAnimationFrame(loop);
     }
-    pause() {
-      this._paused = true;
+  });
+
+  // ../gamedev-published-repos/ecs/src/index.ts
+  var init_src2 = __esm({
+    "../gamedev-published-repos/ecs/src/index.ts"() {
+      init_Component();
+      init_ComponentRegistry();
+      init_Entity();
+      init_Query();
+      init_System();
+      init_World();
     }
-    resume() {
-      this._paused = false;
+  });
+
+  // src/component/TargetTransformComponent.ts
+  var TargetTransformComponent_exports = {};
+  __export(TargetTransformComponent_exports, {
+    default: () => TargetTransformComponent
+  });
+  var TargetTransformComponent;
+  var init_TargetTransformComponent = __esm({
+    "src/component/TargetTransformComponent.ts"() {
+      "use strict";
+      init_src2();
+      TargetTransformComponent = class extends Component {
+        x;
+        y;
+        x1;
+        y1;
+        x2;
+        y2;
+        init(props) {
+          if (props) {
+            if (props.x !== void 0) this.x = props.x;
+            if (props.y !== void 0) this.y = props.y;
+            if (props.x1 !== void 0) this.x1 = props.x1;
+            if (props.y1 !== void 0) this.y1 = props.y1;
+            if (props.x2 !== void 0) this.x2 = props.x2;
+            if (props.y2 !== void 0) this.y2 = props.y2;
+          }
+        }
+        reset() {
+          this.x = void 0;
+          this.y = void 0;
+          this.x1 = void 0;
+          this.y1 = void 0;
+          this.x2 = void 0;
+          this.y2 = void 0;
+        }
+      };
     }
-    stop() {
-      if (this._animationFrameId) {
-        cancelAnimationFrame(this._animationFrameId);
-        this._animationFrameId = 0;
-      }
+  });
+
+  // src/component/ZIndexComponent.ts
+  var ZIndexComponent_exports = {};
+  __export(ZIndexComponent_exports, {
+    default: () => ZIndexComponent
+  });
+  var ZIndexComponent;
+  var init_ZIndexComponent = __esm({
+    "src/component/ZIndexComponent.ts"() {
+      "use strict";
+      init_src2();
+      ZIndexComponent = class extends Component {
+        zIndex = 0;
+        init(props) {
+          if (props) {
+            this.zIndex = props.zIndex;
+          }
+        }
+        reset() {
+          this.zIndex = 0;
+        }
+      };
     }
-    clear() {
-      this.stop();
-      this.entities.clear();
-      this.queries.clear();
-      this.systems.clear();
-      this.callbackFnAfterSystemsUpdate = void 0;
+  });
+
+  // src/component/VersionComponent.ts
+  var VersionComponent_exports = {};
+  __export(VersionComponent_exports, {
+    default: () => VersionComponent
+  });
+  var VersionComponent;
+  var init_VersionComponent = __esm({
+    "src/component/VersionComponent.ts"() {
+      "use strict";
+      init_src2();
+      VersionComponent = class extends Component {
+        version = 1;
+        init(props) {
+          this.version = props?.version ?? 1;
+        }
+        reset() {
+          this.version = 1;
+        }
+      };
     }
-  };
+  });
+
+  // src/Whiteboard.ts
+  init_src2();
 
   // src/renderer/shaders/basic.ts
   var vertexShaderSource = `
@@ -1013,6 +1182,7 @@
   };
 
   // src/component/CameraComponent.ts
+  init_src2();
   var CameraComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1080,35 +1250,65 @@
   var HistoryManager = class {
     undoStack = [];
     redoStack = [];
-    currentState;
     onStateChange;
-    constructor(initialState, onStateChange) {
-      this.currentState = initialState;
+    // External callbacks to apply changes
+    applyUndoAction;
+    applyRedoAction;
+    // A check function to prevent undoing if version drifted (Multiplayer Paradox Defense)
+    checkVersion;
+    constructor(onStateChange, applyUndoAction, applyRedoAction, checkVersion) {
       this.onStateChange = onStateChange;
+      this.applyUndoAction = applyUndoAction;
+      this.applyRedoAction = applyRedoAction;
+      this.checkVersion = checkVersion;
     }
-    pushState(state) {
-      if (this.currentState === state) return;
-      this.undoStack.push(this.currentState);
+    pushActions(actions) {
+      if (actions.length === 0) return;
+      this.undoStack.push(actions);
       if (this.undoStack.length > MAX_HISTORY) {
         this.undoStack.shift();
       }
-      this.currentState = state;
       this.redoStack = [];
       this.onStateChange();
     }
     undo() {
-      if (this.undoStack.length === 0) return null;
-      this.redoStack.push(this.currentState);
-      this.currentState = this.undoStack.pop();
+      if (this.undoStack.length === 0) return;
+      const actions = this.undoStack.pop();
+      const canUndo = actions.every((action) => this.checkVersion(action.entityId, action.version));
+      if (!canUndo) {
+        console.warn("Undo aborted due to multiplayer version drift or shape locked state.");
+        this.redoStack = [];
+        this.onStateChange();
+        return;
+      }
+      for (let i = actions.length - 1; i >= 0; i--) {
+        this.applyUndoAction(actions[i]);
+      }
+      this.redoStack.push(actions);
       this.onStateChange();
-      return this.currentState;
     }
     redo() {
-      if (this.redoStack.length === 0) return null;
-      this.undoStack.push(this.currentState);
-      this.currentState = this.redoStack.pop();
+      if (this.redoStack.length === 0) return;
+      const actions = this.redoStack.pop();
+      const canRedo = actions.every((action) => {
+        if (action.type === "CREATE") {
+          return this.checkVersion(action.entityId, 0);
+        } else if (action.type === "DELETE") {
+          return this.checkVersion(action.entityId, action.version);
+        } else {
+          return this.checkVersion(action.entityId, action.version);
+        }
+      });
+      if (!canRedo) {
+        console.warn("Redo aborted due to multiplayer version drift or shape locked state.");
+        this.onStateChange();
+        return;
+      }
+      for (const action of actions) {
+        this.applyRedoAction(action);
+      }
+      this.undoStack.push(actions);
       this.onStateChange();
-      return this.currentState;
     }
     canUndo() {
       return this.undoStack.length > 0;
@@ -1119,6 +1319,7 @@
   };
 
   // src/component/SelectionRectangleComponent.ts
+  init_src2();
   var SelectionRectangleComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1154,6 +1355,7 @@
   };
 
   // src/component/ToolStateComponent.ts
+  init_src2();
   var ToolStateComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1210,6 +1412,7 @@
   };
 
   // src/component/IsMousePressed.ts
+  init_src2();
   var IsMousePressed = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1218,7 +1421,8 @@
   };
 
   // src/component/RectangleComponent.ts
-  var RectangleComponent = class extends Component {
+  init_src2();
+  var RectangleComponent2 = class extends Component {
     constructor(properties) {
       super(properties);
       this.properties = properties;
@@ -1287,7 +1491,8 @@
   };
 
   // src/component/CircleComponent.ts
-  var CircleComponent = class extends Component {
+  init_src2();
+  var CircleComponent2 = class extends Component {
     constructor(properties) {
       super(properties);
       this.properties = properties;
@@ -1331,6 +1536,7 @@
   };
 
   // src/component/LineComponent.ts
+  init_src2();
   var LineComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1420,12 +1626,12 @@
   // src/shape.ts
   var LINE_HIT_TOLERANCE = 5;
   function hitTestEntity(entity, x, y, scale = 1) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
+    if (entity.hasComponent(RectangleComponent2)) {
+      const comp = entity.getComponent(RectangleComponent2);
       return pointInRectangle(x, y, comp.x, comp.y, comp.width, comp.height);
     }
-    if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
+    if (entity.hasComponent(CircleComponent2)) {
+      const comp = entity.getComponent(CircleComponent2);
       return pointInCircle(x, y, comp.x, comp.y, comp.radius);
     }
     if (entity.hasComponent(LineComponent)) {
@@ -1435,12 +1641,12 @@
     return false;
   }
   function getEntityBounds(entity) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
+    if (entity.hasComponent(RectangleComponent2)) {
+      const comp = entity.getComponent(RectangleComponent2);
       return { x: comp.x, y: comp.y, width: comp.width, height: comp.height };
     }
-    if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
+    if (entity.hasComponent(CircleComponent2)) {
+      const comp = entity.getComponent(CircleComponent2);
       return { x: comp.x - comp.radius, y: comp.y - comp.radius, width: comp.radius * 2, height: comp.radius * 2 };
     }
     if (entity.hasComponent(LineComponent)) {
@@ -1452,12 +1658,12 @@
     return null;
   }
   function moveEntityBy(entity, deltaX, deltaY) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
+    if (entity.hasComponent(RectangleComponent2)) {
+      const comp = entity.getComponent(RectangleComponent2);
       comp.x += deltaX;
       comp.y += deltaY;
-    } else if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
+    } else if (entity.hasComponent(CircleComponent2)) {
+      const comp = entity.getComponent(CircleComponent2);
       comp.x += deltaX;
       comp.y += deltaY;
     } else if (entity.hasComponent(LineComponent)) {
@@ -1589,7 +1795,7 @@
         });
         return;
       }
-      const comp = entity.hasComponent(RectangleComponent) ? entity.getComponent(RectangleComponent) : entity.getComponent(CircleComponent);
+      const comp = entity.hasComponent(RectangleComponent2) ? entity.getComponent(RectangleComponent2) : entity.getComponent(CircleComponent2);
       this.$panel.querySelectorAll("[data-color]").forEach((swatch) => {
         const current = normalizeColor(swatch.dataset.prop === "fill" ? comp.fillColor : comp.strokeColor);
         swatch.style.border = swatch.dataset.color === current ? ACTIVE_SWATCH_BORDER : RESTING_SWATCH_BORDER;
@@ -1597,8 +1803,8 @@
     }
     applyColor(prop, color) {
       const entity = this.visibleEntity();
-      if (!entity || !entity.hasComponent(RectangleComponent) && !entity.hasComponent(CircleComponent)) return;
-      const comp = entity.hasComponent(RectangleComponent) ? entity.getComponent(RectangleComponent) : entity.getComponent(CircleComponent);
+      if (!entity || !entity.hasComponent(RectangleComponent2) && !entity.hasComponent(CircleComponent2)) return;
+      const comp = entity.hasComponent(RectangleComponent2) ? entity.getComponent(RectangleComponent2) : entity.getComponent(CircleComponent2);
       const current = prop === "fill" ? comp.fillColor : comp.strokeColor;
       if (normalizeColor(current) === color) return;
       if (!this.canCommit()) return;
@@ -1660,13 +1866,40 @@
     }
   };
   function shapeKind(entity) {
-    if (entity.hasComponent(RectangleComponent)) return "rectangle";
-    if (entity.hasComponent(CircleComponent)) return "circle";
+    if (entity.hasComponent(RectangleComponent2)) return "rectangle";
+    if (entity.hasComponent(CircleComponent2)) return "circle";
     if (entity.hasComponent(LineComponent)) return "line";
     return null;
   }
 
+  // src/EventEmitter.ts
+  var EventEmitter = class {
+    listeners = /* @__PURE__ */ new Set();
+    isPaused = false;
+    on(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    emit(event) {
+      if (this.isPaused) return;
+      if (event.type !== "boardCleared" && event.type !== "boardMetadataUpdated" && "entityId" in event) {
+        const ignored = ["camera", "cursor", "tool", "selection", "default-layer"];
+        if (ignored.includes(event.entityId)) return;
+      }
+      for (const listener of this.listeners) {
+        listener(event);
+      }
+    }
+    pause() {
+      this.isPaused = true;
+    }
+    resume() {
+      this.isPaused = false;
+    }
+  };
+
   // src/component/IsRendered.ts
+  init_src2();
   var IsRendered = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1675,6 +1908,7 @@
   };
 
   // src/component/IsSelected.ts
+  init_src2();
   var IsSelected = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1683,6 +1917,7 @@
   };
 
   // src/component/MouseComponent.ts
+  init_src2();
   var MouseComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1740,6 +1975,7 @@
   };
 
   // src/component/IsMouseOver.ts
+  init_src2();
   var IsMouseOver = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1748,6 +1984,7 @@
   };
 
   // src/component/DrawnOnLayer.ts
+  init_src2();
   var DrawnOnLayer = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1762,6 +1999,7 @@
   };
 
   // src/component/Layer.ts
+  init_src2();
   var Layer = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1788,6 +2026,7 @@
   };
 
   // src/component/LineAttachmentComponent.ts
+  init_src2();
   var LineAttachmentComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1808,6 +2047,7 @@
   };
 
   // src/component/TextComponent.ts
+  init_src2();
   var TextComponent = class extends Component {
     constructor(properties) {
       super(properties);
@@ -1839,6 +2079,30 @@
     }
   };
 
+  // src/Whiteboard.ts
+  init_TargetTransformComponent();
+  init_ZIndexComponent();
+
+  // src/component/IsLockedComponent.ts
+  init_src2();
+  var IsLockedComponent = class extends Component {
+    userName = "";
+    color = "#000000";
+    init(props) {
+      if (props) {
+        this.userName = props.userName;
+        this.color = props.color;
+      }
+    }
+    reset() {
+      this.userName = "";
+      this.color = "#000000";
+    }
+  };
+
+  // src/Whiteboard.ts
+  init_VersionComponent();
+
   // src/systemDesign.ts
   var SYSTEM_DESIGN_TOOLS = [
     { id: "client", title: "Client", label: "Client" },
@@ -1866,6 +2130,9 @@
     return SYSTEM_DESIGN_TOOLS.find((t) => t.id === tool)?.label;
   }
 
+  // src/system/RenderSystem.ts
+  init_src2();
+
   // src/handles.ts
   var HANDLE_RADIUS = 6;
   var HANDLE_HIT_RADIUS = 8;
@@ -1889,10 +2156,10 @@
         ];
       }
     }
-    if (!selectionEntity.hasComponent(RectangleComponent)) {
+    if (!selectionEntity.hasComponent(RectangleComponent2)) {
       return [];
     }
-    const bounds = selectionEntity.getComponent(RectangleComponent);
+    const bounds = selectionEntity.getComponent(RectangleComponent2);
     return [
       { id: "nw", x: bounds.x, y: bounds.y },
       { id: "ne", x: bounds.x + bounds.width, y: bounds.y },
@@ -1916,7 +2183,7 @@
     return null;
   }
   function getConnectionPoints(entity) {
-    if (!entity.hasComponent(RectangleComponent) && !entity.hasComponent(CircleComponent)) {
+    if (!entity.hasComponent(RectangleComponent2) && !entity.hasComponent(CircleComponent2)) {
       return [];
     }
     const bounds = getEntityBounds(entity);
@@ -1999,12 +2266,12 @@
     return { x: cx - side / 2, y: cy - side / 2, width: side, height: side };
   }
   function getInteriorBox(entity) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const rect = entity.getComponent(RectangleComponent);
+    if (entity.hasComponent(RectangleComponent2)) {
+      const rect = entity.getComponent(RectangleComponent2);
       return interiorBoxForRectangle(rect.x, rect.y, rect.width, rect.height);
     }
-    if (entity.hasComponent(CircleComponent)) {
-      const circle = entity.getComponent(CircleComponent);
+    if (entity.hasComponent(CircleComponent2)) {
+      const circle = entity.getComponent(CircleComponent2);
       return interiorBoxForCircle(circle.x, circle.y, circle.radius);
     }
     return null;
@@ -2164,6 +2431,7 @@
   };
 
   // src/system/RenderSystem.ts
+  init_ZIndexComponent();
   var SELECTION_STROKE_COLOR = "rgb(66 133 244)";
   var HANDLE_FILL_COLOR = "white";
   var HANDLE_STROKE_COLOR = "rgb(170 170 170)";
@@ -2181,6 +2449,7 @@
     // Per-entity text textures; retained state lives here, the renderer stays
     // immediate-mode.
     textCache;
+    hatchTextures = /* @__PURE__ */ new Map();
     update(now) {
       let scale = 1;
       const cameraEntity = this.world.getEntity("camera");
@@ -2195,16 +2464,22 @@
       const selectionEntity = this.world.getEntity("selection");
       const selectionComp = selectionEntity ? selectionEntity.getComponent(SelectionRectangleComponent) : null;
       const liveTextIds = /* @__PURE__ */ new Set();
-      this.query.execute().forEach((entity) => {
-        if (entity.hasComponent(RectangleComponent)) {
-          const comp = entity.getComponent(RectangleComponent);
+      const entities = [...this.query.execute().values()];
+      entities.sort((a, b) => {
+        const zA = a.hasComponent(ZIndexComponent) ? a.getComponent(ZIndexComponent).zIndex : 0;
+        const zB = b.hasComponent(ZIndexComponent) ? b.getComponent(ZIndexComponent).zIndex : 0;
+        return zA - zB;
+      });
+      entities.forEach((entity) => {
+        if (entity.hasComponent(RectangleComponent2)) {
+          const comp = entity.getComponent(RectangleComponent2);
           this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
             strokeColor: comp.strokeColor || "black",
             fillColor: comp.fillColor
           });
           this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
-        } else if (entity.hasComponent(CircleComponent)) {
-          const comp = entity.getComponent(CircleComponent);
+        } else if (entity.hasComponent(CircleComponent2)) {
+          const comp = entity.getComponent(CircleComponent2);
           this.renderer.circle(comp.x, comp.y, comp.radius, {
             strokeColor: comp.strokeColor || "black",
             fillColor: comp.fillColor
@@ -2224,10 +2499,62 @@
             this.drawArrowhead(comp.x1, comp.y1, comp.x2, comp.y2, stroke);
           }
         }
+        this.drawLockOverlay(entity, scale, liveTextIds);
       });
       this.textCache.sweep(liveTextIds);
       this.renderSelectionOverlay(scale);
       this.renderConnectionTargets(scale);
+    }
+    getHatchTexture(color) {
+      if (this.hatchTextures.has(color)) return this.hatchTextures.get(color);
+      const canvas = document.createElement("canvas");
+      canvas.width = 8;
+      canvas.height = 8;
+      const ctx = canvas.getContext("2d");
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-1, 9);
+      ctx.lineTo(9, -1);
+      ctx.moveTo(-1, 1);
+      ctx.lineTo(1, -1);
+      ctx.moveTo(7, 9);
+      ctx.lineTo(9, 7);
+      ctx.stroke();
+      const handle = this.renderer.createTextureFromCanvas(canvas);
+      this.hatchTextures.set(color, handle);
+      return handle;
+    }
+    drawLockOverlay(entity, scale, liveTextIds) {
+      if (!entity.hasComponent(IsLockedComponent)) return;
+      const lockInfo = entity.getComponent(IsLockedComponent);
+      let bounds;
+      if (entity.hasComponent(RectangleComponent2)) {
+        const c = entity.getComponent(RectangleComponent2);
+        bounds = { x: c.x, y: c.y, width: c.width, height: c.height };
+      } else if (entity.hasComponent(CircleComponent2)) {
+        const c = entity.getComponent(CircleComponent2);
+        bounds = { x: c.x - c.radius, y: c.y - c.radius, width: c.radius * 2, height: c.radius * 2 };
+      } else if (entity.hasComponent(LineComponent)) {
+        const c = entity.getComponent(LineComponent);
+        const minX = Math.min(c.x1, c.x2);
+        const minY = Math.min(c.y1, c.y2);
+        bounds = { x: minX, y: minY, width: Math.abs(c.x2 - c.x1), height: Math.abs(c.y2 - c.y1) };
+      }
+      if (!bounds) return;
+      const hatch = this.getHatchTexture(lockInfo.color);
+      this.renderer.texturedQuad(hatch, bounds.x, bounds.y, bounds.width, bounds.height);
+      let name = lockInfo.userName;
+      if (name.length > 12) name = name.substring(0, 10) + "...";
+      const style = { content: name, fontSize: 12, fontFamily: "sans-serif", color: lockInfo.color };
+      const nameBox = { x: bounds.x, y: bounds.y - 16, width: 100, height: 16 };
+      const textId = `lock_${entity.id}`;
+      liveTextIds.add(textId);
+      const texture = this.textCache.get(textId, style, nameBox, scale, false);
+      if (texture) {
+        this.renderer.texturedQuad(texture, nameBox.x, nameBox.y, nameBox.width, nameBox.height);
+      }
     }
     /**
      * Draws an entity's text block as a textured quad over its interior box.
@@ -2299,8 +2626,8 @@
       const isBoxSelection = handles.some((handle) => handle.id === "nw");
       if (isBoxSelection) {
         const selectionEntity = this.world.getEntity("selection");
-        if (selectionEntity && selectionEntity.hasComponent(RectangleComponent)) {
-          const bounds = selectionEntity.getComponent(RectangleComponent);
+        if (selectionEntity && selectionEntity.hasComponent(RectangleComponent2)) {
+          const bounds = selectionEntity.getComponent(RectangleComponent2);
           this.renderer.rectangle(bounds.x, bounds.y, bounds.width, bounds.height, {
             strokeColor: SELECTION_STROKE_COLOR,
             strokeWidth: 1 / scale
@@ -2355,6 +2682,7 @@
   };
 
   // src/system/SelectionSystem.ts
+  init_src2();
   var SELECTION_PADDING = 0;
   var SelectionSystem = class extends System {
     constructor(world, query) {
@@ -2369,8 +2697,8 @@
           return;
         }
         selectionComp.isDirty = false;
-        if (entity.hasComponent(RectangleComponent)) {
-          entity.removeComponent(RectangleComponent);
+        if (entity.hasComponent(RectangleComponent2)) {
+          entity.removeComponent(RectangleComponent2);
         }
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         selectionComp.entities.forEach((selectedEntity) => {
@@ -2386,7 +2714,7 @@
         if (minX === Infinity) {
           return;
         }
-        entity.addComponent(RectangleComponent, {
+        entity.addComponent(RectangleComponent2, {
           x: minX - SELECTION_PADDING,
           y: minY - SELECTION_PADDING,
           width: maxX - minX + SELECTION_PADDING * 2,
@@ -2397,6 +2725,7 @@
   };
 
   // src/system/MousePressSystem.ts
+  init_src2();
   var MousePressSystem = class extends System {
     constructor(world, query) {
       super(world, query);
@@ -2449,6 +2778,7 @@
   };
 
   // src/system/MouseOverSystem.ts
+  init_src2();
   var MouseOverSystem = class extends System {
     constructor(world, query) {
       super(world, query);
@@ -2472,6 +2802,7 @@
   };
 
   // src/system/MouseOutSystem.ts
+  init_src2();
   var MouseOutSystem = class extends System {
     constructor(world, query) {
       super(world, query);
@@ -2493,11 +2824,13 @@
   };
 
   // src/system/DragSystem.ts
+  init_src2();
   var DragSystem = class extends System {
-    constructor(world, query) {
+    constructor(world, query, onSync) {
       super(world, query);
       this.world = world;
       this.query = query;
+      this.onSync = onSync;
     }
     lastPressCount = 0;
     lastX = null;
@@ -2547,12 +2880,32 @@
           entity.removeComponent(LineAttachmentComponent);
         }
         moveEntityBy(entity, deltaX, deltaY);
+        if (this.onSync) {
+          let syncData = { type: "sync", entityId: entity.id };
+          if (entity.hasComponent(RectangleComponent)) {
+            const comp = entity.getComponent(RectangleComponent);
+            syncData.x = comp.x;
+            syncData.y = comp.y;
+          } else if (entity.hasComponent(CircleComponent)) {
+            const comp = entity.getComponent(CircleComponent);
+            syncData.x = comp.x;
+            syncData.y = comp.y;
+          } else if (entity.hasComponent(LineComponent)) {
+            const comp = entity.getComponent(LineComponent);
+            syncData.x1 = comp.x1;
+            syncData.y1 = comp.y1;
+            syncData.x2 = comp.x2;
+            syncData.y2 = comp.y2;
+          }
+          this.onSync(entity.id, syncData);
+        }
       });
       selectionComp.isDirty = true;
     }
   };
 
   // src/system/ResizeSystem.ts
+  init_src2();
   var MIN_RECTANGLE_SIZE = 5;
   var MIN_CIRCLE_RADIUS = 3;
   var ResizeSystem = class extends System {
@@ -2615,8 +2968,8 @@
               attachment.end = null;
             }
           }
-          if (selectionEntity.hasComponent(RectangleComponent)) {
-            const bounds = selectionEntity.getComponent(RectangleComponent);
+          if (selectionEntity.hasComponent(RectangleComponent2)) {
+            const bounds = selectionEntity.getComponent(RectangleComponent2);
             this.anchorX = handle.id === "nw" || handle.id === "sw" ? bounds.x + bounds.width : bounds.x;
             this.anchorY = handle.id === "nw" || handle.id === "ne" ? bounds.y + bounds.height : bounds.y;
           }
@@ -2721,8 +3074,8 @@
         }
         return;
       }
-      if (target.hasComponent(RectangleComponent)) {
-        const rect = target.getComponent(RectangleComponent);
+      if (target.hasComponent(RectangleComponent2)) {
+        const rect = target.getComponent(RectangleComponent2);
         const width = Math.max(MIN_RECTANGLE_SIZE, Math.abs(x - this.anchorX));
         const height = Math.max(MIN_RECTANGLE_SIZE, Math.abs(y - this.anchorY));
         rect.x = x >= this.anchorX ? this.anchorX : this.anchorX - width;
@@ -2731,8 +3084,8 @@
         rect.height = height;
         return;
       }
-      if (target.hasComponent(CircleComponent)) {
-        const circle = target.getComponent(CircleComponent);
+      if (target.hasComponent(CircleComponent2)) {
+        const circle = target.getComponent(CircleComponent2);
         const diameter = Math.min(Math.abs(x - this.anchorX), Math.abs(y - this.anchorY));
         const radius = Math.max(MIN_CIRCLE_RADIUS, diameter / 2);
         circle.radius = radius;
@@ -2741,6 +3094,9 @@
       }
     }
   };
+
+  // src/system/ConnectionSystem.ts
+  init_src2();
 
   // src/autoSelect.ts
   function autoSelectFreshShape(world, entity) {
@@ -2884,6 +3240,7 @@
   };
 
   // src/system/ToolStateSystem.ts
+  init_src2();
   var ToolStateSystem = class extends System {
     constructor(world, query) {
       super(world, query);
@@ -2904,6 +3261,7 @@
   };
 
   // src/system/RectangleDrawSystem.ts
+  init_src2();
   var MIN_RECTANGLE_SIZE2 = 5;
   var RectangleDrawSystem = class extends System {
     constructor(world, query) {
@@ -2931,9 +3289,9 @@
           toolState.drawState = "FIRST_POINT_SET";
           toolState.startX = mouseComp.pressX;
           toolState.startY = mouseComp.pressY;
-          const entityId = `rectangle-${Date.now()}-${this.entityCounter++}`;
+          const entityId = `rectangle-${crypto.randomUUID()}`;
           const previewEntity = this.world.createEntity(entityId);
-          previewEntity.addComponent(RectangleComponent, {
+          previewEntity.addComponent(RectangleComponent2, {
             x: mouseComp.pressX,
             y: mouseComp.pressY,
             width: 1,
@@ -2948,7 +3306,7 @@
         if (toolState.previewEntityId) {
           const previewEntity = this.world.getEntity(toolState.previewEntityId);
           if (previewEntity) {
-            const rectComp = previewEntity.getComponent(RectangleComponent);
+            const rectComp = previewEntity.getComponent(RectangleComponent2);
             const x1 = Math.min(toolState.startX, mouseComp.x);
             const y1 = Math.min(toolState.startY, mouseComp.y);
             const x2 = Math.max(toolState.startX, mouseComp.x);
@@ -2963,7 +3321,7 @@
           if (toolState.previewEntityId) {
             const previewEntity = this.world.getEntity(toolState.previewEntityId);
             if (previewEntity) {
-              const rectComp = previewEntity.getComponent(RectangleComponent);
+              const rectComp = previewEntity.getComponent(RectangleComponent2);
               if (rectComp.width < MIN_RECTANGLE_SIZE2 || rectComp.height < MIN_RECTANGLE_SIZE2) {
                 this.world.removeEntity(previewEntity.id);
                 console.log("Rectangle cancelled: too small");
@@ -2990,6 +3348,7 @@
   };
 
   // src/system/CircleDrawSystem.ts
+  init_src2();
   var MIN_CIRCLE_RADIUS2 = 3;
   var CircleDrawSystem = class extends System {
     constructor(world, query) {
@@ -3017,9 +3376,9 @@
           toolState.drawState = "FIRST_POINT_SET";
           toolState.startX = mouseComp.pressX;
           toolState.startY = mouseComp.pressY;
-          const entityId = `circle-${Date.now()}-${this.entityCounter++}`;
+          const entityId = `circle-${crypto.randomUUID()}`;
           const previewEntity = this.world.createEntity(entityId);
-          previewEntity.addComponent(CircleComponent, {
+          previewEntity.addComponent(CircleComponent2, {
             x: mouseComp.pressX,
             y: mouseComp.pressY,
             radius: 1,
@@ -3033,7 +3392,7 @@
         if (toolState.previewEntityId) {
           const previewEntity = this.world.getEntity(toolState.previewEntityId);
           if (previewEntity) {
-            const circleComp = previewEntity.getComponent(CircleComponent);
+            const circleComp = previewEntity.getComponent(CircleComponent2);
             const x1 = Math.min(toolState.startX, mouseComp.x);
             const y1 = Math.min(toolState.startY, mouseComp.y);
             const x2 = Math.max(toolState.startX, mouseComp.x);
@@ -3050,7 +3409,7 @@
           if (toolState.previewEntityId) {
             const previewEntity = this.world.getEntity(toolState.previewEntityId);
             if (previewEntity) {
-              const circleComp = previewEntity.getComponent(CircleComponent);
+              const circleComp = previewEntity.getComponent(CircleComponent2);
               if (circleComp.radius < MIN_CIRCLE_RADIUS2) {
                 this.world.removeEntity(previewEntity.id);
                 console.log("Circle cancelled: too small");
@@ -3067,6 +3426,7 @@
   };
 
   // src/system/LineDrawSystem.ts
+  init_src2();
   var MIN_LINE_LENGTH = 5;
   var LineDrawSystem = class extends System {
     constructor(world, query) {
@@ -3090,7 +3450,7 @@
           toolState.drawState = "FIRST_POINT_SET";
           toolState.startX = mouseComp.pressX;
           toolState.startY = mouseComp.pressY;
-          const entityId = `line-${Date.now()}-${this.entityCounter++}`;
+          const entityId = `line-${crypto.randomUUID()}`;
           const previewEntity = this.world.createEntity(entityId);
           previewEntity.addComponent(LineComponent, {
             x1: mouseComp.pressX,
@@ -3134,6 +3494,7 @@
   };
 
   // src/system/LineAttachmentSystem.ts
+  init_src2();
   var LineAttachmentSystem = class extends System {
     constructor(world, query) {
       super(world, query);
@@ -3187,6 +3548,7 @@
   };
 
   // src/system/TextEditSystem.ts
+  init_src2();
   var OVERLAY_Z_INDEX = "500";
   var TextEditSystem = class extends System {
     constructor(world, query, wrapper, onContentChanged) {
@@ -3329,6 +3691,7 @@
   };
 
   // src/system/HistorySystem.ts
+  init_src2();
   var HistorySystem = class extends System {
     constructor(world, query, onAction) {
       super(world, query);
@@ -3349,6 +3712,81 @@
         return;
       }
       this.onAction();
+    }
+  };
+
+  // src/system/InterpolationSystem.ts
+  init_src2();
+  init_TargetTransformComponent();
+  var LERP_SPEED = 15;
+  var InterpolationSystem = class extends System {
+    constructor(world, query) {
+      super(world, query);
+      this.world = world;
+      this.query = query;
+    }
+    lastUpdate = performance.now();
+    update(now) {
+      const dt = (now - this.lastUpdate) / 1e3;
+      this.lastUpdate = now;
+      if (dt <= 0 || dt > 0.1) return;
+      const t = 1 - Math.exp(-LERP_SPEED * dt);
+      this.query.execute().forEach((entity) => {
+        const target = entity.getComponent(TargetTransformComponent);
+        let reached = true;
+        if (entity.hasComponent(RectangleComponent2)) {
+          const comp = entity.getComponent(RectangleComponent2);
+          if (target.x !== void 0 && target.y !== void 0) {
+            const dx = target.x - comp.x;
+            const dy = target.y - comp.y;
+            if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+              comp.x += dx * t;
+              comp.y += dy * t;
+              reached = false;
+            } else {
+              comp.x = target.x;
+              comp.y = target.y;
+            }
+          }
+        } else if (entity.hasComponent(CircleComponent2)) {
+          const comp = entity.getComponent(CircleComponent2);
+          if (target.x !== void 0 && target.y !== void 0) {
+            const dx = target.x - comp.x;
+            const dy = target.y - comp.y;
+            if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+              comp.x += dx * t;
+              comp.y += dy * t;
+              reached = false;
+            } else {
+              comp.x = target.x;
+              comp.y = target.y;
+            }
+          }
+        } else if (entity.hasComponent(LineComponent)) {
+          const comp = entity.getComponent(LineComponent);
+          if (target.x1 !== void 0 && target.y1 !== void 0 && target.x2 !== void 0 && target.y2 !== void 0) {
+            const dx1 = target.x1 - comp.x1;
+            const dy1 = target.y1 - comp.y1;
+            const dx2 = target.x2 - comp.x2;
+            const dy2 = target.y2 - comp.y2;
+            if (Math.abs(dx1) > 0.1 || Math.abs(dy1) > 0.1 || Math.abs(dx2) > 0.1 || Math.abs(dy2) > 0.1) {
+              comp.x1 += dx1 * t;
+              comp.y1 += dy1 * t;
+              comp.x2 += dx2 * t;
+              comp.y2 += dy2 * t;
+              reached = false;
+            } else {
+              comp.x1 = target.x1;
+              comp.y1 = target.y1;
+              comp.x2 = target.x2;
+              comp.y2 = target.y2;
+            }
+          }
+        }
+        if (reached) {
+          entity.removeComponent(TargetTransformComponent);
+        }
+      });
     }
   };
 
@@ -3384,6 +3822,9 @@
     $popupNotice;
     loadedShapeCounter = 0;
     duplicateCounter = 0;
+    events = new EventEmitter();
+    readOnly = false;
+    preInteractionState = /* @__PURE__ */ new Map();
     constructor(container) {
       this.container = container;
       this.world = new World();
@@ -3471,7 +3912,12 @@
       this.renderer = new WebGLRenderer(this.gl);
       this.gl.clearColor(1, 1, 1, 1);
       this.setupECS();
-      this.history = new HistoryManager(this.saveShapes(), () => this.updateHistoryButtons());
+      this.history = new HistoryManager(
+        () => this.updateHistoryButtons(),
+        (action) => this.applyUndoAction(action),
+        (action) => this.applyRedoAction(action),
+        (entityId, expectedVersion) => this.checkVersion(entityId, expectedVersion)
+      );
       this.updateHistoryButtons();
       this.bindEvents(menu);
       this.resize();
@@ -3493,9 +3939,9 @@
           IsMouseOver,
           IsMousePressed,
           MouseComponent,
-          RectangleComponent,
+          RectangleComponent2,
           SelectionRectangleComponent,
-          CircleComponent,
+          CircleComponent2,
           LineComponent,
           IsSelected,
           ToolStateComponent,
@@ -3503,7 +3949,11 @@
           Layer,
           CameraComponent,
           LineAttachmentComponent,
-          TextComponent
+          TextComponent,
+          VersionComponent,
+          IsLockedComponent,
+          TargetTransformComponent,
+          ZIndexComponent
         ]);
         _Whiteboard.componentsRegistered = true;
       }
@@ -3517,17 +3967,18 @@
       defaultLayer.addComponent(Layer, { id: "default-layer", zIndex: 0, visible: true });
       const camera = this.world.createEntity("camera");
       camera.addComponent(CameraComponent, { x: 0, y: 0, scale: 1 });
-      const SHAPE_COMPONENTS = [RectangleComponent, CircleComponent, LineComponent];
+      const SHAPE_COMPONENTS = [RectangleComponent2, CircleComponent2, LineComponent];
       const allRenderableQuery = this.world.createQuery("renderables", { all: [IsRendered] });
-      const selectableShapesQuery = this.world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
-      const shapesForMouseOverQuery = this.world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent] });
+      const selectableShapesQuery = this.world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent, IsLockedComponent] });
+      const shapesForMouseOverQuery = this.world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent, IsLockedComponent] });
       const shapesForMouseOutQuery = this.world.createQuery("shapesMouseOut", { all: [IsMouseOver], any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
       const selectionQuery = this.world.createQuery("selection", { all: [SelectionRectangleComponent] });
       const toolQuery = this.world.createQuery("tool", { all: [ToolStateComponent] });
       this.shapesQuery = this.world.createQuery("shapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
-      const connectableShapesQuery = this.world.createQuery("connectableShapes", { any: [RectangleComponent, CircleComponent], none: [SelectionRectangleComponent] });
+      const connectableShapesQuery = this.world.createQuery("connectableShapes", { any: [RectangleComponent2, CircleComponent2], none: [SelectionRectangleComponent] });
       const attachedLinesQuery = this.world.createQuery("attachedLines", { all: [LineComponent, LineAttachmentComponent] });
       const historyQuery = this.world.createQuery("history", { all: [MouseComponent] });
+      const interpolationQuery = this.world.createQuery("interpolation", { all: [TargetTransformComponent] });
       this.world.createSystem(ToolStateSystem, toolQuery);
       this.world.createSystem(RectangleDrawSystem, toolQuery);
       this.world.createSystem(CircleDrawSystem, toolQuery);
@@ -3536,13 +3987,58 @@
       this.world.createSystem(ConnectionSystem, selectionQuery, connectableShapesQuery);
       this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
       this.world.createSystem(MousePressSystem, selectableShapesQuery);
-      this.world.createSystem(DragSystem, selectionQuery);
+      this.world.createSystem(DragSystem, selectionQuery, (entityId, data) => this.events.emit(data));
       this.world.createSystem(LineAttachmentSystem, attachedLinesQuery);
       this.world.createSystem(MouseOverSystem, shapesForMouseOverQuery);
       this.world.createSystem(MouseOutSystem, shapesForMouseOutQuery);
       this.world.createSystem(SelectionSystem, selectionQuery);
+      this.world.createSystem(InterpolationSystem, interpolationQuery);
       this.world.createSystem(RenderingSystem, allRenderableQuery, this.renderer);
       this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
+    }
+    setReadOnly(readOnly) {
+      this.readOnly = readOnly;
+      this.events.pause();
+      const toolEntity = this.world.getEntity("tool");
+      if (toolEntity) {
+        toolEntity.getComponent(ToolStateComponent).reset();
+      }
+      const selection = this.world.getEntity("selection")?.getComponent(SelectionRectangleComponent);
+      if (selection) selection.clear();
+      this.commitTextEditIfAny();
+      if (!readOnly) this.events.resume();
+    }
+    abortInteraction() {
+      this.commitTextEditIfAny();
+      const toolEntity = this.world.getEntity("tool");
+      if (toolEntity) {
+        const toolState = toolEntity.getComponent(ToolStateComponent);
+        if (toolState.previewEntityId) {
+          this.world.removeEntity(toolState.previewEntityId);
+        }
+        toolState.reset();
+      }
+    }
+    lockShape(entityId, info) {
+      const entity = this.world.getEntity(entityId);
+      if (!entity) return;
+      if (!entity.hasComponent(IsLockedComponent)) {
+        entity.addComponent(IsLockedComponent, info);
+      } else {
+        const comp = entity.getComponent(IsLockedComponent);
+        comp.userName = info.userName;
+        comp.color = info.color;
+      }
+      const selection = this.world.getEntity("selection")?.getComponent(SelectionRectangleComponent);
+      if (selection && selection.entities.has(entityId)) {
+        selection.removeEntity(entityId);
+      }
+    }
+    unlockShape(entityId) {
+      const entity = this.world.getEntity(entityId);
+      if (entity && entity.hasComponent(IsLockedComponent)) {
+        entity.removeComponent(IsLockedComponent);
+      }
     }
     // Commits an open text edit by blurring its textarea (the blur handler is
     // the commit); used before camera/viewport changes that would leave the
@@ -3577,6 +4073,7 @@
         this.isActive = false;
       });
       this.$canvas.addEventListener("mousemove", (e) => {
+        if (this.readOnly) return;
         const mouse = this.cursor.getComponent(MouseComponent);
         mouse.screenX = e.offsetX;
         mouse.screenY = e.offsetY;
@@ -3584,6 +4081,12 @@
         mouse.setXY(w.x, w.y);
       });
       this.$canvas.addEventListener("mousedown", (e) => {
+        if (this.readOnly) return;
+        this.preInteractionState.clear();
+        const shapes = JSON.parse(this.saveShapes());
+        for (const shape of shapes) {
+          this.preInteractionState.set(shape.id, shape);
+        }
         const mouse = this.cursor.getComponent(MouseComponent);
         mouse.screenX = e.offsetX;
         mouse.screenY = e.offsetY;
@@ -3806,8 +4309,8 @@
       const previewId = toolEntity?.getComponent(ToolStateComponent).previewEntityId;
       const shapes = [...this.shapesQuery.execute().values()].filter((entity) => entity.id !== previewId).map((entity) => {
         const data = { id: entity.id, type: "" };
-        if (entity.hasComponent(RectangleComponent)) {
-          const comp = entity.getComponent(RectangleComponent);
+        if (entity.hasComponent(RectangleComponent2)) {
+          const comp = entity.getComponent(RectangleComponent2);
           data.type = "rectangle";
           data.x = comp.x;
           data.y = comp.y;
@@ -3817,8 +4320,8 @@
           data.strokeColor = comp.strokeColor;
           data.strokeWidth = comp.strokeWidth;
           data.sysType = comp.sysType;
-        } else if (entity.hasComponent(CircleComponent)) {
-          const comp = entity.getComponent(CircleComponent);
+        } else if (entity.hasComponent(CircleComponent2)) {
+          const comp = entity.getComponent(CircleComponent2);
           data.type = "circle";
           data.x = comp.x;
           data.y = comp.y;
@@ -3865,7 +4368,7 @@
       }
       const stale = /* @__PURE__ */ new Set([...this.shapesQuery.execute().keys()]);
       shapes.forEach((shape) => {
-        const id = shape.id ?? `loaded-shape-${this.loadedShapeCounter++}`;
+        const id = shape.id ?? `loaded-shape-${crypto.randomUUID()}`;
         const strokeColor = shape.strokeColor ?? shape.color;
         stale.delete(id);
         let entity = this.world.getEntity(id);
@@ -3873,7 +4376,7 @@
           entity = this.world.createEntity(id);
           entity.addComponent(IsRendered);
           if (shape.type === "rectangle") {
-            entity.addComponent(RectangleComponent, {
+            entity.addComponent(RectangleComponent2, {
               x: shape.x,
               y: shape.y,
               width: shape.width,
@@ -3884,7 +4387,7 @@
               sysType: shape.sysType
             });
           } else if (shape.type === "circle") {
-            entity.addComponent(CircleComponent, {
+            entity.addComponent(CircleComponent2, {
               x: shape.x,
               y: shape.y,
               radius: shape.radius,
@@ -3905,8 +4408,8 @@
             });
           }
         } else {
-          if (shape.type === "rectangle" && entity.hasComponent(RectangleComponent)) {
-            const comp = entity.getComponent(RectangleComponent);
+          if (shape.type === "rectangle" && entity.hasComponent(RectangleComponent2)) {
+            const comp = entity.getComponent(RectangleComponent2);
             comp.x = shape.x;
             comp.y = shape.y;
             comp.width = shape.width;
@@ -3915,8 +4418,8 @@
             comp.strokeColor = strokeColor;
             comp.strokeWidth = shape.strokeWidth;
             comp.sysType = shape.sysType;
-          } else if (shape.type === "circle" && entity.hasComponent(CircleComponent)) {
-            const comp = entity.getComponent(CircleComponent);
+          } else if (shape.type === "circle" && entity.hasComponent(CircleComponent2)) {
+            const comp = entity.getComponent(CircleComponent2);
             comp.x = shape.x;
             comp.y = shape.y;
             comp.radius = shape.radius;
@@ -4013,11 +4516,11 @@
       const offset = DUPLICATE_OFFSET / this.camera.scale;
       const duplicates = [];
       for (const source of selection.entities.values()) {
-        const copy = this.world.createEntity(`duplicate-${Date.now()}-${this.duplicateCounter++}`);
+        const copy = this.world.createEntity(`duplicate-${crypto.randomUUID()}`);
         copy.addComponent(IsRendered);
-        if (source.hasComponent(RectangleComponent)) {
-          const comp = source.getComponent(RectangleComponent);
-          copy.addComponent(RectangleComponent, {
+        if (source.hasComponent(RectangleComponent2)) {
+          const comp = source.getComponent(RectangleComponent2);
+          copy.addComponent(RectangleComponent2, {
             x: comp.x + offset,
             y: comp.y + offset,
             width: comp.width,
@@ -4027,9 +4530,9 @@
             strokeWidth: comp.strokeWidth,
             sysType: comp.sysType
           });
-        } else if (source.hasComponent(CircleComponent)) {
-          const comp = source.getComponent(CircleComponent);
-          copy.addComponent(CircleComponent, {
+        } else if (source.hasComponent(CircleComponent2)) {
+          const comp = source.getComponent(CircleComponent2);
+          copy.addComponent(CircleComponent2, {
             x: comp.x + offset,
             y: comp.y + offset,
             radius: comp.radius,
@@ -4070,7 +4573,93 @@
       this.recordHistory();
     }
     recordHistory() {
-      this.history.pushState(this.saveShapes());
+      if (this.readOnly) return;
+      const postState = /* @__PURE__ */ new Map();
+      const shapes = JSON.parse(this.saveShapes());
+      for (const shape of shapes) {
+        postState.set(shape.id, shape);
+      }
+      const actions = [];
+      for (const [id, postShape] of postState) {
+        const preShape = this.preInteractionState.get(id);
+        if (!preShape) {
+          actions.push({ type: "CREATE", entityId: id, componentData: postShape, version: 1 });
+        } else if (JSON.stringify(preShape) !== JSON.stringify(postShape)) {
+          const entity = this.world.getEntity(id);
+          let version = 1;
+          if (entity && entity.hasComponent(VersionComponent)) {
+            const vComp = entity.getComponent(VersionComponent);
+            vComp.version++;
+            version = vComp.version;
+          }
+          actions.push({ type: "UPDATE", entityId: id, before: preShape, after: postShape, version });
+        }
+      }
+      for (const [id, preShape] of this.preInteractionState) {
+        if (!postState.has(id)) {
+          actions.push({ type: "DELETE", entityId: id, componentData: preShape, version: preShape.version ?? 1 });
+        }
+      }
+      if (actions.length > 0) {
+        this.history.pushActions(actions);
+        for (const action of actions) {
+          if (action.type === "CREATE") {
+            this.events.emit({ type: "shapeCreated", entityId: action.entityId, data: action.componentData });
+          } else if (action.type === "UPDATE") {
+            this.events.emit({ type: "shapeUpdated", entityId: action.entityId, data: action.after });
+          } else if (action.type === "DELETE") {
+            this.events.emit({ type: "shapeDeleted", entityId: action.entityId });
+          }
+        }
+      }
+      this.preInteractionState = postState;
+    }
+    checkVersion(entityId, expectedVersion) {
+      const entity = this.world.getEntity(entityId);
+      if (!entity) return expectedVersion === 0;
+      if (entity.hasComponent(IsLockedComponent)) return false;
+      if (!entity.hasComponent(VersionComponent)) return expectedVersion === 1;
+      return entity.getComponent(VersionComponent).version === expectedVersion;
+    }
+    applyUndoAction(action) {
+      if (action.type === "CREATE") {
+        this.world.removeEntity(action.entityId);
+        this.events.emit({ type: "shapeDeleted", entityId: action.entityId });
+      } else if (action.type === "UPDATE") {
+        this.loadShapes(JSON.stringify([action.before]));
+        const entity = this.world.getEntity(action.entityId);
+        if (entity && entity.hasComponent(VersionComponent)) {
+          entity.getComponent(VersionComponent).version = action.before.version ?? 1;
+        }
+        this.events.emit({ type: "shapeUpdated", entityId: action.entityId, data: action.before });
+      } else if (action.type === "DELETE") {
+        this.loadShapes(JSON.stringify([action.componentData]));
+        const entity = this.world.getEntity(action.entityId);
+        if (entity && entity.hasComponent(VersionComponent)) {
+          entity.getComponent(VersionComponent).version = action.version;
+        }
+        this.events.emit({ type: "shapeCreated", entityId: action.entityId, data: action.componentData });
+      }
+    }
+    applyRedoAction(action) {
+      if (action.type === "CREATE") {
+        this.loadShapes(JSON.stringify([action.componentData]));
+        const entity = this.world.getEntity(action.entityId);
+        if (entity && !entity.hasComponent(VersionComponent)) {
+          entity.addComponent(VersionComponent, { version: 1 });
+        }
+        this.events.emit({ type: "shapeCreated", entityId: action.entityId, data: action.componentData });
+      } else if (action.type === "UPDATE") {
+        this.loadShapes(JSON.stringify([action.after]));
+        const entity = this.world.getEntity(action.entityId);
+        if (entity && entity.hasComponent(VersionComponent)) {
+          entity.getComponent(VersionComponent).version = action.version;
+        }
+        this.events.emit({ type: "shapeUpdated", entityId: action.entityId, data: action.after });
+      } else if (action.type === "DELETE") {
+        this.world.removeEntity(action.entityId);
+        this.events.emit({ type: "shapeDeleted", entityId: action.entityId });
+      }
     }
     undo() {
       if (!this.canApplyHistory()) return;
@@ -4233,9 +4822,154 @@
     }
   };
 
+  // src/multiplayer/MultiplayerPlugin.ts
+  var MultiplayerPlugin = class {
+    constructor(whiteboard, config) {
+      this.whiteboard = whiteboard;
+      this.config = config;
+    }
+    ws = null;
+    rtcPeer = null;
+    rtcChannel = null;
+    isWebRTCReady = false;
+    tcpFallbackTimer = null;
+    userName = "";
+    userColor = "";
+    connect() {
+      this.ws = new WebSocket(`${this.config.wsUrl}?token=${this.config.jwtToken}`);
+      this.ws.onopen = () => {
+        console.log("[Multiplayer] WebSocket connected. Critical channel open.");
+        this.initWebRTC();
+      };
+      this.ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        this.handleServerMessage(msg);
+      };
+      this.ws.onclose = () => {
+        console.log("[Multiplayer] WebSocket disconnected.");
+        this.whiteboard.setReadOnly(true);
+      };
+      this.whiteboard.events.on((event) => this.handleLocalEvent(event));
+    }
+    initWebRTC() {
+      this.rtcPeer = new RTCPeerConnection(this.config.turnServers);
+      this.rtcChannel = this.rtcPeer.createDataChannel("ephemeral", { ordered: false, maxRetransmits: 0 });
+      this.rtcChannel.onopen = () => {
+        console.log("[Multiplayer] WebRTC DataChannel open. Using UDP for ephemeral sync.");
+        this.isWebRTCReady = true;
+        if (this.tcpFallbackTimer) clearTimeout(this.tcpFallbackTimer);
+      };
+      this.rtcChannel.onclose = () => {
+        this.isWebRTCReady = false;
+      };
+      this.rtcChannel.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "sync") {
+            this.handleSyncMessage(msg);
+          }
+        } catch (e) {
+        }
+      };
+      this.tcpFallbackTimer = setTimeout(() => {
+        if (!this.isWebRTCReady) {
+          console.warn("[Multiplayer] WebRTC DataChannel failed to open within 5 seconds. Falling back to TCP (WebSocket) for ephemeral sync.");
+        }
+      }, 5e3);
+      this.rtcPeer.createOffer().then((offer) => this.rtcPeer.setLocalDescription(offer)).then(() => {
+        this.ws?.send(JSON.stringify({ type: "rtc_offer", sdp: this.rtcPeer.localDescription }));
+      });
+    }
+    handleServerMessage(msg) {
+      if (msg.type === "force_disconnect") {
+        console.error("[Multiplayer] Disconnected: Session preempted by another tab.");
+        this.ws?.close();
+        return;
+      }
+      if (msg.type === "init") {
+        this.userName = msg.userName;
+        this.userColor = msg.userColor;
+        this.whiteboard.setReadOnly(false);
+      }
+      if (msg.type === "rtc_answer") {
+        this.rtcPeer?.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      }
+      if (msg.type === "rtc_candidate") {
+        this.rtcPeer?.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      }
+      if (msg.type === "lock") {
+        this.whiteboard.lockShape(msg.entityId, { userName: msg.userName, color: msg.color });
+      }
+      if (msg.type === "unlock") {
+        this.whiteboard.unlockShape(msg.entityId);
+      }
+      if (msg.type === "shapeCreated" || msg.type === "shapeUpdated") {
+        this.whiteboard.events.pause();
+        this.whiteboard.loadShapes(JSON.stringify([msg.data]));
+        const entity = this.whiteboard.world.getEntity(msg.data.id);
+        if (entity) {
+          if (msg.data.zIndex !== void 0) {
+            let zComp = entity.getComponent((c) => c.constructor.name === "ZIndexComponent");
+            if (!zComp) {
+              zComp = new (init_ZIndexComponent(), __toCommonJS(ZIndexComponent_exports)).default();
+              entity.addComponentInstance(zComp);
+            }
+            zComp.zIndex = msg.data.zIndex;
+          }
+          if (msg.data.version !== void 0) {
+            let vComp = entity.getComponent((c) => c.constructor.name === "VersionComponent");
+            if (!vComp) {
+              vComp = new (init_VersionComponent(), __toCommonJS(VersionComponent_exports)).default();
+              entity.addComponentInstance(vComp);
+            }
+            vComp.version = msg.data.version;
+          }
+        }
+        this.whiteboard.events.resume();
+      }
+      if (msg.type === "shapeDeleted") {
+        this.whiteboard.events.pause();
+        this.whiteboard.world.removeEntity(msg.entityId);
+        this.whiteboard.events.resume();
+      }
+      if (msg.type === "sync") {
+        this.handleSyncMessage(msg);
+      }
+    }
+    handleSyncMessage(msg) {
+      const entity = this.whiteboard.world.getEntity(msg.entityId);
+      if (!entity) return;
+      let target = entity.getComponent((c) => c.constructor.name === "TargetTransformComponent");
+      if (!target) {
+        target = new (init_TargetTransformComponent(), __toCommonJS(TargetTransformComponent_exports)).default();
+        entity.addComponentInstance(target);
+      }
+      target.init({ x: msg.x, y: msg.y, x1: msg.x1, y1: msg.y1, x2: msg.x2, y2: msg.y2 });
+    }
+    handleLocalEvent(event) {
+      if (event.type === "shapeInteractionStarted") {
+        this.ws?.send(JSON.stringify({ type: "lock", entityId: event.entityId }));
+      } else if (event.type === "shapeInteractionEnded") {
+        this.ws?.send(JSON.stringify({ type: "unlock", entityId: event.entityId }));
+      } else if (event.type === "sync") {
+        this.sendEphemeral(event);
+      } else {
+        this.ws?.send(JSON.stringify(event));
+      }
+    }
+    sendEphemeral(msg) {
+      if (this.isWebRTCReady && this.rtcChannel?.readyState === "open") {
+        this.rtcChannel.send(JSON.stringify(msg));
+      } else if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify(msg));
+      }
+    }
+  };
+
   // src/index.ts
   if (typeof window !== "undefined") {
     window.Whiteboard = Whiteboard;
+    window.MultiplayerPlugin = MultiplayerPlugin;
   }
 })();
 //# sourceMappingURL=demo.js.map

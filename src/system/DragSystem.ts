@@ -29,6 +29,7 @@ export default class DragSystem extends System {
   public constructor(
     public world: World,
     public query: Query,
+    private onSync?: (entityId: string, data: any) => void
   ) {
     super(world, query);
   }
@@ -105,6 +106,22 @@ export default class DragSystem extends System {
         entity.removeComponent(LineAttachmentComponent);
       }
       moveEntityBy(entity, deltaX, deltaY);
+
+      if (this.onSync) {
+        let syncData: any = { type: 'sync', entityId: entity.id };
+        if (entity.hasComponent(RectangleComponent)) {
+          const comp = entity.getComponent(RectangleComponent);
+          syncData.x = comp.x; syncData.y = comp.y;
+        } else if (entity.hasComponent(CircleComponent)) {
+          const comp = entity.getComponent(CircleComponent);
+          syncData.x = comp.x; syncData.y = comp.y;
+        } else if (entity.hasComponent(LineComponent)) {
+          const comp = entity.getComponent(LineComponent);
+          syncData.x1 = comp.x1; syncData.y1 = comp.y1;
+          syncData.x2 = comp.x2; syncData.y2 = comp.y2;
+        }
+        this.onSync(entity.id, syncData);
+      }
     });
 
     // Mark selection as dirty so SelectionSystem updates the bounding box

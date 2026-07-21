@@ -56,7 +56,7 @@ export default class CircleDrawSystem extends System {
         toolState.startY = mouseComp.pressY;
 
         // Create preview entity
-        const entityId = `circle-${Date.now()}-${this.entityCounter++}`;
+        const entityId = `circle-${crypto.randomUUID()}`;
         const previewEntity = this.world.createEntity(entityId);
         previewEntity.addComponent(CircleComponent, {
           x: mouseComp.pressX,

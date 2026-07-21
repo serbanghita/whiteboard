@@ -1,8 +1,9 @@
 import { Entity, Query, World } from "@serbanghita-gamedev/ecs";
 import { WebGLRenderer } from "./renderer";
 import { applyWheel, screenToWorld } from "./camera";
-import { HistoryManager } from "./HistoryManager";
+import { HistoryManager, Action } from "./HistoryManager";
 import PropertiesPanel from "./PropertiesPanel";
+import { EventEmitter, WhiteboardEvent } from "./EventEmitter";
 
 // Components
 import RectangleComponent from "./component/RectangleComponent";
@@ -20,6 +21,10 @@ import Layer from "./component/Layer";
 import CameraComponent from "./component/CameraComponent";
 import LineAttachmentComponent from "./component/LineAttachmentComponent";
 import TextComponent from "./component/TextComponent";
+import TargetTransformComponent from "./component/TargetTransformComponent";
+import ZIndexComponent from "./component/ZIndexComponent";
+import IsLockedComponent from "./component/IsLockedComponent";
+import VersionComponent from "./component/VersionComponent";
 import { SYSTEM_DESIGN_TOOLS } from "./systemDesign";
 
 // Systems
@@ -38,6 +43,7 @@ import LineDrawSystem from "./system/LineDrawSystem";
 import LineAttachmentSystem from "./system/LineAttachmentSystem";
 import TextEditSystem from "./system/TextEditSystem";
 import HistorySystem from "./system/HistorySystem";
+import InterpolationSystem from "./system/InterpolationSystem";
 
 // Screen-pixel offset applied to duplicated shapes (converted to world units
 // at the current zoom), so the copy never hides the original exactly.
@@ -73,6 +79,10 @@ export class Whiteboard {
   private $popupNotice!: HTMLSpanElement;
   private loadedShapeCounter = 0;
   private duplicateCounter = 0;
+  
+  public events = new EventEmitter();
+  private readOnly = false;
+  private preInteractionState: Map<string, any> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -174,7 +184,12 @@ export class Whiteboard {
     this.setupECS();
 
     // Baseline snapshot = the empty board, so the first action is undoable.
-    this.history = new HistoryManager(this.saveShapes(), () => this.updateHistoryButtons());
+    this.history = new HistoryManager(
+      () => this.updateHistoryButtons(),
+      (action) => this.applyUndoAction(action),
+      (action) => this.applyRedoAction(action),
+      (entityId, expectedVersion) => this.checkVersion(entityId, expectedVersion)
+    );
     this.updateHistoryButtons();
 
     // 3. Bind events
@@ -205,7 +220,9 @@ export class Whiteboard {
         IsRendered, IsMouseOver, IsMousePressed, MouseComponent,
         RectangleComponent, SelectionRectangleComponent, CircleComponent,
         LineComponent, IsSelected, ToolStateComponent, DrawnOnLayer,
-        Layer, CameraComponent, LineAttachmentComponent, TextComponent
+        Layer, CameraComponent, LineAttachmentComponent, TextComponent,
+        VersionComponent, IsLockedComponent, TargetTransformComponent,
+        ZIndexComponent
       ]);
       Whiteboard.componentsRegistered = true;
     }
@@ -227,8 +244,8 @@ export class Whiteboard {
 
     const SHAPE_COMPONENTS = [RectangleComponent, CircleComponent, LineComponent];
     const allRenderableQuery = this.world.createQuery("renderables", { all: [IsRendered] });
-    const selectableShapesQuery = this.world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
-    const shapesForMouseOverQuery = this.world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent] });
+    const selectableShapesQuery = this.world.createQuery("selectableShapes", { any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent, IsLockedComponent] });
+    const shapesForMouseOverQuery = this.world.createQuery("shapesMouseOver", { any: SHAPE_COMPONENTS, none: [IsMouseOver, SelectionRectangleComponent, IsLockedComponent] });
     const shapesForMouseOutQuery = this.world.createQuery("shapesMouseOut", { all: [IsMouseOver], any: SHAPE_COMPONENTS, none: [SelectionRectangleComponent] });
     const selectionQuery = this.world.createQuery("selection", { all: [SelectionRectangleComponent] });
     const toolQuery = this.world.createQuery("tool", { all: [ToolStateComponent] });
@@ -237,6 +254,7 @@ export class Whiteboard {
     const connectableShapesQuery = this.world.createQuery("connectableShapes", { any: [RectangleComponent, CircleComponent], none: [SelectionRectangleComponent] });
     const attachedLinesQuery = this.world.createQuery("attachedLines", { all: [LineComponent, LineAttachmentComponent] });
     const historyQuery = this.world.createQuery("history", { all: [MouseComponent] });
+    const interpolationQuery = this.world.createQuery("interpolation", { all: [TargetTransformComponent] });
 
     this.world.createSystem(ToolStateSystem, toolQuery);
     this.world.createSystem(RectangleDrawSystem, toolQuery);
@@ -247,16 +265,65 @@ export class Whiteboard {
     // Text editing targets the same rect+circle set a connection can snap to.
     this.world.createSystem(TextEditSystem, connectableShapesQuery, this.$wrapper, () => this.recordHistory());
     this.world.createSystem(MousePressSystem, selectableShapesQuery);
-    this.world.createSystem(DragSystem, selectionQuery);
+    this.world.createSystem(DragSystem, selectionQuery, (entityId: string, data: any) => this.events.emit(data));
     // After every system that moves/resizes shapes, before Selection/Render:
     // re-pins attached line endpoints so they follow their shapes.
     this.world.createSystem(LineAttachmentSystem, attachedLinesQuery);
     this.world.createSystem(MouseOverSystem, shapesForMouseOverQuery);
     this.world.createSystem(MouseOutSystem, shapesForMouseOutQuery);
     this.world.createSystem(SelectionSystem, selectionQuery);
+    this.world.createSystem(InterpolationSystem, interpolationQuery);
     this.world.createSystem(RenderingSystem, allRenderableQuery, this.renderer);
     // Last: snapshots the finished frame's state on each release edge.
     this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
+  }
+
+  public setReadOnly(readOnly: boolean) {
+    this.readOnly = readOnly;
+    this.events.pause();
+    const toolEntity = this.world.getEntity('tool');
+    if (toolEntity) {
+      toolEntity.getComponent(ToolStateComponent).reset();
+    }
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    if (selection) selection.clear();
+    this.commitTextEditIfAny();
+    if (!readOnly) this.events.resume();
+  }
+
+  public abortInteraction() {
+    this.commitTextEditIfAny();
+    const toolEntity = this.world.getEntity('tool');
+    if (toolEntity) {
+      const toolState = toolEntity.getComponent(ToolStateComponent);
+      if (toolState.previewEntityId) {
+        this.world.removeEntity(toolState.previewEntityId);
+      }
+      toolState.reset();
+    }
+  }
+
+  public lockShape(entityId: string, info: { userName: string, color: string }) {
+    const entity = this.world.getEntity(entityId);
+    if (!entity) return;
+    if (!entity.hasComponent(IsLockedComponent)) {
+      entity.addComponent(IsLockedComponent, info);
+    } else {
+      const comp = entity.getComponent(IsLockedComponent);
+      comp.userName = info.userName;
+      comp.color = info.color;
+    }
+    const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
+    if (selection && selection.entities.has(entityId)) {
+      selection.removeEntity(entityId);
+    }
+  }
+
+  public unlockShape(entityId: string) {
+    const entity = this.world.getEntity(entityId);
+    if (entity && entity.hasComponent(IsLockedComponent)) {
+      entity.removeComponent(IsLockedComponent);
+    }
   }
 
   // Commits an open text edit by blurring its textarea (the blur handler is
@@ -293,6 +360,7 @@ export class Whiteboard {
     this.$canvas.addEventListener('mouseleave', () => { this.isActive = false; });
 
     this.$canvas.addEventListener('mousemove', (e) => {
+      if (this.readOnly) return;
       const mouse = this.cursor.getComponent(MouseComponent);
       mouse.screenX = e.offsetX;
       mouse.screenY = e.offsetY;
@@ -301,6 +369,15 @@ export class Whiteboard {
     });
 
     this.$canvas.addEventListener('mousedown', (e) => {
+      if (this.readOnly) return;
+      
+      // Capture pre-interaction state
+      this.preInteractionState.clear();
+      const shapes = JSON.parse(this.saveShapes());
+      for (const shape of shapes) {
+        this.preInteractionState.set(shape.id, shape);
+      }
+      
       const mouse = this.cursor.getComponent(MouseComponent);
       mouse.screenX = e.offsetX;
       mouse.screenY = e.offsetY;
@@ -652,7 +729,7 @@ export class Whiteboard {
 
     shapes.forEach((shape: any) => {
       // Legacy save files (v1.0) have no ids and use a single `color` field.
-      const id: string = shape.id ?? `loaded-shape-${this.loadedShapeCounter++}`;
+      const id: string = shape.id ?? `loaded-shape-${crypto.randomUUID()}`;
       const strokeColor = shape.strokeColor ?? shape.color;
       stale.delete(id);
 
@@ -804,7 +881,7 @@ export class Whiteboard {
     const duplicates: Entity[] = [];
 
     for (const source of selection.entities.values()) {
-      const copy = this.world.createEntity(`duplicate-${Date.now()}-${this.duplicateCounter++}`);
+      const copy = this.world.createEntity(`duplicate-${crypto.randomUUID()}`);
       copy.addComponent(IsRendered);
       if (source.hasComponent(RectangleComponent)) {
         const comp = source.getComponent(RectangleComponent);
@@ -852,7 +929,106 @@ export class Whiteboard {
   }
 
   public recordHistory(): void {
-    this.history.pushState(this.saveShapes());
+    if (this.readOnly) return;
+    
+    const postState = new Map<string, any>();
+    const shapes = JSON.parse(this.saveShapes());
+    for (const shape of shapes) {
+      postState.set(shape.id, shape);
+    }
+    
+    const actions: Action[] = [];
+    
+    // Check for creates and updates
+    for (const [id, postShape] of postState) {
+      const preShape = this.preInteractionState.get(id);
+      if (!preShape) {
+        actions.push({ type: 'CREATE', entityId: id, componentData: postShape, version: 1 });
+      } else if (JSON.stringify(preShape) !== JSON.stringify(postShape)) {
+        // Increment version on update
+        const entity = this.world.getEntity(id);
+        let version = 1;
+        if (entity && entity.hasComponent(VersionComponent)) {
+          const vComp = entity.getComponent(VersionComponent);
+          vComp.version++;
+          version = vComp.version;
+        }
+        actions.push({ type: 'UPDATE', entityId: id, before: preShape, after: postShape, version });
+      }
+    }
+    
+    // Check for deletes
+    for (const [id, preShape] of this.preInteractionState) {
+      if (!postState.has(id)) {
+        actions.push({ type: 'DELETE', entityId: id, componentData: preShape, version: preShape.version ?? 1 });
+      }
+    }
+    
+    if (actions.length > 0) {
+      this.history.pushActions(actions);
+      for (const action of actions) {
+        if (action.type === 'CREATE') {
+          this.events.emit({ type: 'shapeCreated', entityId: action.entityId, data: action.componentData });
+        } else if (action.type === 'UPDATE') {
+          this.events.emit({ type: 'shapeUpdated', entityId: action.entityId, data: action.after });
+        } else if (action.type === 'DELETE') {
+          this.events.emit({ type: 'shapeDeleted', entityId: action.entityId });
+        }
+      }
+    }
+    
+    // Update preInteraction state to the new state
+    this.preInteractionState = postState;
+  }
+
+  private checkVersion(entityId: string, expectedVersion: number): boolean {
+    const entity = this.world.getEntity(entityId);
+    if (!entity) return expectedVersion === 0; // If it expects not to exist, that's fine
+    if (entity.hasComponent(IsLockedComponent)) return false; // Locked shapes can't be undone
+    if (!entity.hasComponent(VersionComponent)) return expectedVersion === 1;
+    return entity.getComponent(VersionComponent).version === expectedVersion;
+  }
+
+  private applyUndoAction(action: Action): void {
+    if (action.type === 'CREATE') {
+      this.world.removeEntity(action.entityId);
+      this.events.emit({ type: 'shapeDeleted', entityId: action.entityId });
+    } else if (action.type === 'UPDATE') {
+      this.loadShapes(JSON.stringify([action.before]));
+      const entity = this.world.getEntity(action.entityId);
+      if (entity && entity.hasComponent(VersionComponent)) {
+        entity.getComponent(VersionComponent).version = action.before.version ?? 1;
+      }
+      this.events.emit({ type: 'shapeUpdated', entityId: action.entityId, data: action.before });
+    } else if (action.type === 'DELETE') {
+      this.loadShapes(JSON.stringify([action.componentData]));
+      const entity = this.world.getEntity(action.entityId);
+      if (entity && entity.hasComponent(VersionComponent)) {
+        entity.getComponent(VersionComponent).version = action.version;
+      }
+      this.events.emit({ type: 'shapeCreated', entityId: action.entityId, data: action.componentData });
+    }
+  }
+
+  private applyRedoAction(action: Action): void {
+    if (action.type === 'CREATE') {
+      this.loadShapes(JSON.stringify([action.componentData]));
+      const entity = this.world.getEntity(action.entityId);
+      if (entity && !entity.hasComponent(VersionComponent)) {
+        entity.addComponent(VersionComponent, { version: 1 });
+      }
+      this.events.emit({ type: 'shapeCreated', entityId: action.entityId, data: action.componentData });
+    } else if (action.type === 'UPDATE') {
+      this.loadShapes(JSON.stringify([action.after]));
+      const entity = this.world.getEntity(action.entityId);
+      if (entity && entity.hasComponent(VersionComponent)) {
+        entity.getComponent(VersionComponent).version = action.version;
+      }
+      this.events.emit({ type: 'shapeUpdated', entityId: action.entityId, data: action.after });
+    } else if (action.type === 'DELETE') {
+      this.world.removeEntity(action.entityId);
+      this.events.emit({ type: 'shapeDeleted', entityId: action.entityId });
+    }
   }
 
   public undo(): void {

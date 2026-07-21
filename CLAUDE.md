@@ -24,6 +24,15 @@ Notes on consuming these packages from TS source:
   constructor params.
 - `World.removeEntity(id)` takes a **string id**, not an Entity.
 
+## Code Intelligence
+
+Always attempt to use the TypeScript LSP tool first (typescript-lsp plugin, enabled at project
+scope in `.claude/settings.json`) for diagnostics, go-to-definition, references, and type info —
+prefer it over grep-based navigation and over running tsc for spot checks. Requires the
+`typescript-language-server` binary on PATH. Caveat: the language server does not apply this
+project's `strictFunctionTypes: false`, so it reports false-positive `ComponentConstructor`
+bivariance errors at `registerComponents` call sites — `npx tsc --noEmit` is the authority there.
+
 ## Directory Structure
 
 ```
@@ -37,6 +46,12 @@ src/
 │                               #   destroy()
 ├── HistoryManager.ts           # Pure undo/redo stack over saveShapes() JSON strings (string-equality
 │                               #   dedup, redo-clear on push, 100-step cap, onStateChange callback)
+├── PropertiesPanel.ts          # Contextual DOM bar over the single selected shape (fill/stroke
+│                               #   swatches for rect/circle, start/end None|Arrow segments for
+│                               #   lines); repositioned every frame via world.start's
+│                               #   callbackFnAfterSystemsUpdate, 40px above the shape (flips
+│                               #   below at the viewport top), hidden during any gesture; every
+│                               #   change is one undo step via the canCommit/onCommit closures
 ├── collision.ts                # pointInRectangle / pointInCircle / pointOnLine helpers
 ├── shape.ts                    # Shape-agnostic hitTestEntity / getEntityBounds / moveEntityBy
 ├── camera.ts                   # Pure camera math: screenToWorld/worldToScreen, zoom-at-cursor, pan, applyWheel
@@ -53,7 +68,9 @@ src/
 ├── systemDesign.ts             # SYSTEM_DESIGN_TOOLS registry (17 primitives, importance order):
 │                               #   single source of truth for the ToolType union, the SYS panel
 │                               #   buttons and the label stamped on drawn shapes
-├── renderer/                   # WebGL renderer (IRenderer, WebGLRenderer, shaders, colorUtils)
+├── renderer/                   # WebGL renderer (IRenderer, WebGLRenderer, shaders, colorUtils);
+│                               #   primitives: rectangle, circle, line, triangle (filled, used
+│                               #   for line arrowheads), dot, textured quads
 ├── __mocks__/webgl.ts          # Mock WebGL context for headless tests
 ├── __tests__/app.smoke.test.ts # Boots the real app in jsdom, drives tools frame-by-frame
 ├── __tests__/historyManager.test.ts  # Unit tests for the undo/redo stack
@@ -61,7 +78,9 @@ src/
 ├── component/                  # Data containers (no logic)
 │   ├── RectangleComponent.ts   # x, y, width, height, colors
 │   ├── CircleComponent.ts      # x, y (center), radius, colors
-│   ├── LineComponent.ts        # x1, y1, x2, y2, colors, length getter
+│   ├── LineComponent.ts        # x1, y1, x2, y2, colors, length getter, arrowStart/arrowEnd
+│   │                           #   ('arrow' | undefined; 'none' is never stored - absent key
+│   │                           #   keeps snapshots canonical)
 │   ├── LineAttachmentComponent.ts  # Per-endpoint pins {entityId, handleId} tying a line to shapes
 │   ├── MouseComponent.ts       # Cursor position (world) + last screen pos + event-time press/release
 │   │                           #   AND dblclick counters
@@ -99,7 +118,9 @@ src/
     ├── SelectionSystem.ts      # Selection bounding rectangle: tight union of selected shapes' bounds (no padding)
     ├── RenderSystem.ts         # Clears canvas, draws all IsRendered entities plainly (each shape's
     │                           #   text right after it, as a textured quad from the owned
-    │                           #   TextTextureCache; skips the entity being edited), the selection
+    │                           #   TextTextureCache; skips the entity being edited; lines get
+    │                           #   filled arrowhead triangles per arrowStart/arrowEnd, clamped to
+    │                           #   half the line length), the selection
     │                           #   overlay, then snap-target dots while a connection drag is active
     ├── ConnectionSystem.ts     # Draws new lines from connection handles, snapping the free endpoint
     │                           #   to other shapes' connection points and recording attachments
@@ -234,6 +255,25 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
   hit radius (`handleAtPoint(..., scale)`), selection stroke + handle sizes (RenderSystem).
   Shape strokes scale with the world; draw min-sizes stay world-space. DPR backing-store scaling
   is independent of camera zoom
+- **Contextual properties panel** (`src/PropertiesPanel.ts`): a horizontal DOM bar appears 40px
+  above the single selected shape (cursor tool only; flips below when the shape is near the
+  viewport top, clamped inside the wrapper), repositioned every frame via
+  `world.start({ callbackFnAfterSystemsUpdate })`. Rect/circle: Fill + Stroke rows of 8 preset
+  swatches (white, black, red, orange, yellow, green, blue, purple; active swatch gets a blue
+  border, named `black`/`white` defaults normalize to their hex swatches). Line: Start/End
+  segmented None|Arrow controls toggling `LineComponent.arrowStart/arrowEnd`. Hidden during any
+  gesture (mouse held, draw in progress, text edit open). Each change is exactly one undo step
+  (`recordHistory()`; same-value clicks are no-ops); colors and arrows serialize through
+  `saveShapes()`/`loadShapes()` and are copied by Cmd+D. Panel clicks never reach the canvas
+  (sibling element), so the selection survives them
+- **Line arrowheads** (RenderSystem + `IRenderer.triangle`): filled triangles at either endpoint
+  per `arrowStart`/`arrowEnd`, in the line's stroke color, world-sized 12×10 (zoom with the
+  line) and clamped to half the line length so short lines stay sane; drawn after the line so
+  they cap it
+- **Draw defaults**: rectangles and circles are created with `fillColor: 'white'` +
+  `strokeColor: 'black'` (previously no fill). A shape's text always draws on top of its own
+  fill (shape first, text immediately after); legacy loaded shapes without a fill stay
+  transparent
 
 ## TODO / Incomplete
 

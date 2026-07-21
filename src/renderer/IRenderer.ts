@@ -62,6 +62,12 @@ export interface IRenderer {
   line(x1: number, y1: number, x2: number, y2: number, options?: DrawOptions): void;
 
   /**
+   * Draw a filled triangle (world coordinates).
+   * Color: fillColor, falling back to strokeColor, then black.
+   */
+  triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, options?: DrawOptions): void;
+
+  /**
    * Largest texture dimension the backend supports, in pixels.
    */
   maxTextureSize(): number;

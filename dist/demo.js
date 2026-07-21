@@ -885,6 +885,11 @@
       const lineWidth = options?.strokeWidth || 1;
       this.drawLineInternal(x1, y1, x2, y2, lineWidth);
     }
+    triangle(x1, y1, x2, y2, x3, y3, options) {
+      const color = options?.fillColor || options?.strokeColor || "black";
+      this.setColor(parseColor(color));
+      this.drawTriangles(new Float32Array([x1, y1, x2, y2, x3, y3]));
+    }
     maxTextureSize() {
       return this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
     }
@@ -1113,6 +1118,105 @@
     }
   };
 
+  // src/component/SelectionRectangleComponent.ts
+  var SelectionRectangleComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+      this.entities = new Map((properties.entities ?? []).map((entity) => [entity.id, entity]));
+    }
+    // The current selected Entities.
+    entities;
+    isDirty = true;
+    // Set by ResizeSystem while a handle drag is active; MousePressSystem and
+    // DragSystem skip presses claimed by a resize.
+    resizeHandleId = null;
+    connectionHandleId = null;
+    // The connection point the dragged line endpoint would snap to, while a
+    // connection drag is active. Written by ConnectionSystem, read by
+    // RenderSystem for the highlight ring - UI feedback only.
+    connectionSnap = null;
+    hasEntity(entity) {
+      return this.entities.has(entity.id);
+    }
+    addEntity(entity) {
+      this.entities.set(entity.id, entity);
+      this.isDirty = true;
+    }
+    removeEntity(entity) {
+      this.entities.delete(entity.id);
+      this.isDirty = true;
+    }
+    clear() {
+      this.entities.clear();
+      this.isDirty = true;
+    }
+  };
+
+  // src/component/ToolStateComponent.ts
+  var ToolStateComponent = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+    // Text-edit state, plain class fields like MouseComponent's counters (not
+    // constructor props, so addComponent call sites stay unchanged and nothing
+    // is implicitly undefined). reset() touches neither.
+    //
+    // Entity whose text is being edited in the DOM overlay; single source of
+    // truth read by RenderSystem and the keyboard/history guards.
+    editingEntityId = null;
+    // pressCount value recorded when a textarea click-away commit consumed a
+    // canvas press. Press consumers skip any press with
+    // pressCount <= suppressedPressCount for its ENTIRE hold (the counter is
+    // monotonic), so the commit click cannot select/drag/resize/connect.
+    suppressedPressCount = 0;
+    get currentTool() {
+      return this.properties.currentTool;
+    }
+    set currentTool(tool) {
+      this.properties.currentTool = tool;
+    }
+    get drawState() {
+      return this.properties.drawState;
+    }
+    set drawState(state) {
+      this.properties.drawState = state;
+    }
+    get startX() {
+      return this.properties.startX;
+    }
+    set startX(x) {
+      this.properties.startX = x;
+    }
+    get startY() {
+      return this.properties.startY;
+    }
+    set startY(y) {
+      this.properties.startY = y;
+    }
+    get previewEntityId() {
+      return this.properties.previewEntityId;
+    }
+    set previewEntityId(id) {
+      this.properties.previewEntityId = id;
+    }
+    reset() {
+      this.properties.drawState = "IDLE";
+      this.properties.startX = void 0;
+      this.properties.startY = void 0;
+      this.properties.previewEntityId = void 0;
+    }
+  };
+
+  // src/component/IsMousePressed.ts
+  var IsMousePressed = class extends Component {
+    constructor(properties) {
+      super(properties);
+      this.properties = properties;
+    }
+  };
+
   // src/component/RectangleComponent.ts
   var RectangleComponent = class extends Component {
     constructor(properties) {
@@ -1262,12 +1366,299 @@
     set strokeWidth(value) {
       this.properties.strokeWidth = value;
     }
+    get arrowStart() {
+      return this.properties.arrowStart;
+    }
+    set arrowStart(value) {
+      this.properties.arrowStart = value;
+    }
+    get arrowEnd() {
+      return this.properties.arrowEnd;
+    }
+    set arrowEnd(value) {
+      this.properties.arrowEnd = value;
+    }
     get length() {
       const dx = this.x2 - this.x1;
       const dy = this.y2 - this.y1;
       return Math.sqrt(dx * dx + dy * dy);
     }
   };
+
+  // src/collision.ts
+  function pointInRectangle(px, py, rx, ry, rw, rh) {
+    return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+  }
+  function pointInCircle(px, py, cx, cy, radius) {
+    const dx = px - cx;
+    const dy = py - cy;
+    return dx * dx + dy * dy <= radius * radius;
+  }
+  function pointOnLine(px, py, x1, y1, x2, y2, tolerance = 5) {
+    const lineLengthSquared = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+    if (lineLengthSquared === 0) {
+      const dx2 = px - x1;
+      const dy2 = py - y1;
+      return Math.sqrt(dx2 * dx2 + dy2 * dy2) <= tolerance;
+    }
+    let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / lineLengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    const closestX = x1 + t * (x2 - x1);
+    const closestY = y1 + t * (y2 - y1);
+    const dx = px - closestX;
+    const dy = py - closestY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance <= tolerance;
+  }
+
+  // src/shape.ts
+  var LINE_HIT_TOLERANCE = 5;
+  function hitTestEntity(entity, x, y, scale = 1) {
+    if (entity.hasComponent(RectangleComponent)) {
+      const comp = entity.getComponent(RectangleComponent);
+      return pointInRectangle(x, y, comp.x, comp.y, comp.width, comp.height);
+    }
+    if (entity.hasComponent(CircleComponent)) {
+      const comp = entity.getComponent(CircleComponent);
+      return pointInCircle(x, y, comp.x, comp.y, comp.radius);
+    }
+    if (entity.hasComponent(LineComponent)) {
+      const comp = entity.getComponent(LineComponent);
+      return pointOnLine(x, y, comp.x1, comp.y1, comp.x2, comp.y2, LINE_HIT_TOLERANCE / scale);
+    }
+    return false;
+  }
+  function getEntityBounds(entity) {
+    if (entity.hasComponent(RectangleComponent)) {
+      const comp = entity.getComponent(RectangleComponent);
+      return { x: comp.x, y: comp.y, width: comp.width, height: comp.height };
+    }
+    if (entity.hasComponent(CircleComponent)) {
+      const comp = entity.getComponent(CircleComponent);
+      return { x: comp.x - comp.radius, y: comp.y - comp.radius, width: comp.radius * 2, height: comp.radius * 2 };
+    }
+    if (entity.hasComponent(LineComponent)) {
+      const comp = entity.getComponent(LineComponent);
+      const x = Math.min(comp.x1, comp.x2);
+      const y = Math.min(comp.y1, comp.y2);
+      return { x, y, width: Math.abs(comp.x2 - comp.x1), height: Math.abs(comp.y2 - comp.y1) };
+    }
+    return null;
+  }
+  function moveEntityBy(entity, deltaX, deltaY) {
+    if (entity.hasComponent(RectangleComponent)) {
+      const comp = entity.getComponent(RectangleComponent);
+      comp.x += deltaX;
+      comp.y += deltaY;
+    } else if (entity.hasComponent(CircleComponent)) {
+      const comp = entity.getComponent(CircleComponent);
+      comp.x += deltaX;
+      comp.y += deltaY;
+    } else if (entity.hasComponent(LineComponent)) {
+      const comp = entity.getComponent(LineComponent);
+      comp.x1 += deltaX;
+      comp.y1 += deltaY;
+      comp.x2 += deltaX;
+      comp.y2 += deltaY;
+    }
+  }
+
+  // src/PropertiesPanel.ts
+  var PALETTE = ["#ffffff", "#000000", "#e53935", "#fb8c00", "#fdd835", "#43a047", "#1e88e5", "#8e24aa"];
+  var PANEL_Z_INDEX = "900";
+  var PANEL_GAP = 40;
+  var PANEL_HEIGHT = 48;
+  var FALLBACK_WIDTH_COLORS = 420;
+  var FALLBACK_WIDTH_LINE = 280;
+  var ACTIVE_SWATCH_BORDER = "2px solid #1a73e8";
+  var RESTING_SWATCH_BORDER = "1px solid #d0d0d0";
+  var ACTIVE_SEGMENT_BG = "#e0e0e0";
+  var NAMED_TO_HEX = { black: "#000000", white: "#ffffff" };
+  function normalizeColor(color) {
+    if (color === void 0) return void 0;
+    const lower = color.toLowerCase();
+    return NAMED_TO_HEX[lower] ?? lower;
+  }
+  var PropertiesPanel = class {
+    constructor(world, wrapper, canCommit, onCommit) {
+      this.world = world;
+      this.canCommit = canCommit;
+      this.onCommit = onCommit;
+      this.$panel = document.createElement("div");
+      this.$panel.className = "properties-panel";
+      this.$panel.style.position = "absolute";
+      this.$panel.style.display = "none";
+      this.$panel.style.alignItems = "center";
+      this.$panel.style.gap = "8px";
+      this.$panel.style.background = "white";
+      this.$panel.style.borderRadius = "8px";
+      this.$panel.style.boxShadow = "2px 4px 8px rgba(0, 0, 0, 0.15)";
+      this.$panel.style.padding = "8px";
+      this.$panel.style.boxSizing = "border-box";
+      this.$panel.style.height = `${PANEL_HEIGHT}px`;
+      this.$panel.style.whiteSpace = "nowrap";
+      this.$panel.style.userSelect = "none";
+      this.$panel.style.zIndex = PANEL_Z_INDEX;
+      wrapper.appendChild(this.$panel);
+      this.$panel.addEventListener("click", (e) => {
+        const target = e.target;
+        const swatch = target.closest("[data-color]");
+        if (swatch) {
+          this.applyColor(swatch.dataset.prop, swatch.dataset.color);
+          return;
+        }
+        const segment = target.closest("[data-arrow]");
+        if (segment) {
+          this.applyArrow(segment.dataset.lineend, segment.dataset.arrow);
+        }
+      });
+    }
+    $panel;
+    // Rebuild guard: selection has no change event (SelectionSystem clears
+    // isDirty before this runs), so diff the shown entity instead.
+    shownEntityId = null;
+    shownKind = null;
+    /** Called every frame after all systems ran. */
+    update() {
+      const entity = this.visibleEntity();
+      if (!entity) {
+        this.hide();
+        return;
+      }
+      const kind = shapeKind(entity);
+      const camera = this.world.getEntity("camera")?.getComponent(CameraComponent);
+      if (!kind || !camera) {
+        this.hide();
+        return;
+      }
+      if (entity.id !== this.shownEntityId || kind !== this.shownKind) {
+        this.rebuildContent(kind);
+        this.shownEntityId = entity.id;
+        this.shownKind = kind;
+      }
+      this.$panel.style.display = "flex";
+      this.refreshActiveStates(entity);
+      this.position(entity, camera);
+    }
+    destroy() {
+      this.$panel.remove();
+    }
+    /** The single selected shape, or null while the panel must stay hidden. */
+    visibleEntity() {
+      const toolState = this.world.getEntity("tool")?.getComponent(ToolStateComponent);
+      if (!toolState || toolState.currentTool !== "cursor") return null;
+      if (toolState.drawState !== "IDLE" || toolState.editingEntityId) return null;
+      const cursor = this.world.getEntity("cursor");
+      if (!cursor || cursor.hasComponent(IsMousePressed)) return null;
+      const selection = this.world.getEntity("selection")?.getComponent(SelectionRectangleComponent);
+      if (!selection || selection.entities.size !== 1) return null;
+      return selection.entities.values().next().value ?? null;
+    }
+    rebuildContent(kind) {
+      if (kind === "line") {
+        this.$panel.innerHTML = `${this.segmentGroup("Start", "start")}${this.separator()}${this.segmentGroup("End", "end")}`;
+      } else {
+        this.$panel.innerHTML = `${this.swatchGroup("Fill", "fill")}${this.separator()}${this.swatchGroup("Stroke", "stroke")}`;
+      }
+    }
+    swatchGroup(label, prop) {
+      const swatches = PALETTE.map((color) => `
+        <button data-prop="${prop}" data-color="${color}" title="${label} ${color}" style="width:20px;height:20px;padding:0;border:${RESTING_SWATCH_BORDER};border-radius:4px;background:${color};cursor:pointer;"></button>`).join("");
+      return `<span style="font-size:11px;font-family:sans-serif;font-weight:bold;color:#333;">${label}</span>${swatches}`;
+    }
+    segmentGroup(label, end) {
+      const segment = (value, text) => `
+        <button data-lineend="${end}" data-arrow="${value}" style="height:24px;padding:0 8px;border:none;border-radius:4px;background:transparent;cursor:pointer;font-size:11px;font-family:sans-serif;color:#333;">${text}</button>`;
+      return `<span style="font-size:11px;font-family:sans-serif;font-weight:bold;color:#333;">${label}</span>${segment("none", "None")}${segment("arrow", "Arrow")}`;
+    }
+    separator() {
+      return `<div style="width:1px;height:24px;background:#e0e0e0;"></div>`;
+    }
+    refreshActiveStates(entity) {
+      if (entity.hasComponent(LineComponent)) {
+        const comp2 = entity.getComponent(LineComponent);
+        this.$panel.querySelectorAll("[data-arrow]").forEach((segment) => {
+          const current = (segment.dataset.lineend === "start" ? comp2.arrowStart : comp2.arrowEnd) ?? "none";
+          segment.style.background = segment.dataset.arrow === current ? ACTIVE_SEGMENT_BG : "transparent";
+        });
+        return;
+      }
+      const comp = entity.hasComponent(RectangleComponent) ? entity.getComponent(RectangleComponent) : entity.getComponent(CircleComponent);
+      this.$panel.querySelectorAll("[data-color]").forEach((swatch) => {
+        const current = normalizeColor(swatch.dataset.prop === "fill" ? comp.fillColor : comp.strokeColor);
+        swatch.style.border = swatch.dataset.color === current ? ACTIVE_SWATCH_BORDER : RESTING_SWATCH_BORDER;
+      });
+    }
+    applyColor(prop, color) {
+      const entity = this.visibleEntity();
+      if (!entity || !entity.hasComponent(RectangleComponent) && !entity.hasComponent(CircleComponent)) return;
+      const comp = entity.hasComponent(RectangleComponent) ? entity.getComponent(RectangleComponent) : entity.getComponent(CircleComponent);
+      const current = prop === "fill" ? comp.fillColor : comp.strokeColor;
+      if (normalizeColor(current) === color) return;
+      if (!this.canCommit()) return;
+      if (prop === "fill") {
+        comp.fillColor = color;
+      } else {
+        comp.strokeColor = color;
+      }
+      this.refreshActiveStates(entity);
+      this.onCommit();
+    }
+    applyArrow(end, value) {
+      const entity = this.visibleEntity();
+      if (!entity || !entity.hasComponent(LineComponent)) return;
+      const comp = entity.getComponent(LineComponent);
+      const current = (end === "start" ? comp.arrowStart : comp.arrowEnd) ?? "none";
+      if (current === value) return;
+      if (!this.canCommit()) return;
+      const stored = value === "none" ? void 0 : value;
+      if (end === "start") {
+        comp.arrowStart = stored;
+      } else {
+        comp.arrowEnd = stored;
+      }
+      this.refreshActiveStates(entity);
+      this.onCommit();
+    }
+    position(entity, camera) {
+      const bounds = getEntityBounds(entity);
+      if (!bounds) {
+        this.hide();
+        return;
+      }
+      const topLeft = worldToScreen(camera, bounds.x, bounds.y);
+      const screenWidth = bounds.width * camera.scale;
+      const screenHeight = bounds.height * camera.scale;
+      const wrapper = this.$panel.parentElement;
+      const wrapperWidth = wrapper.clientWidth;
+      const wrapperHeight = wrapper.clientHeight;
+      const panelWidth = this.$panel.offsetWidth || (this.shownKind === "line" ? FALLBACK_WIDTH_LINE : FALLBACK_WIDTH_COLORS);
+      let left = topLeft.x + screenWidth / 2 - panelWidth / 2;
+      let top = topLeft.y - PANEL_GAP - PANEL_HEIGHT;
+      if (top < 0) {
+        top = topLeft.y + screenHeight + PANEL_GAP;
+      }
+      if (wrapperWidth > 0) {
+        left = Math.max(0, Math.min(left, wrapperWidth - panelWidth));
+      }
+      if (wrapperHeight > 0) {
+        top = Math.max(0, Math.min(top, wrapperHeight - PANEL_HEIGHT));
+      }
+      this.$panel.style.left = `${left}px`;
+      this.$panel.style.top = `${top}px`;
+    }
+    hide() {
+      this.$panel.style.display = "none";
+      this.shownEntityId = null;
+      this.shownKind = null;
+    }
+  };
+  function shapeKind(entity) {
+    if (entity.hasComponent(RectangleComponent)) return "rectangle";
+    if (entity.hasComponent(CircleComponent)) return "circle";
+    if (entity.hasComponent(LineComponent)) return "line";
+    return null;
+  }
 
   // src/component/IsRendered.ts
   var IsRendered = class extends Component {
@@ -1342,110 +1733,11 @@
     }
   };
 
-  // src/component/SelectionRectangleComponent.ts
-  var SelectionRectangleComponent = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-      this.entities = new Map((properties.entities ?? []).map((entity) => [entity.id, entity]));
-    }
-    // The current selected Entities.
-    entities;
-    isDirty = true;
-    // Set by ResizeSystem while a handle drag is active; MousePressSystem and
-    // DragSystem skip presses claimed by a resize.
-    resizeHandleId = null;
-    connectionHandleId = null;
-    // The connection point the dragged line endpoint would snap to, while a
-    // connection drag is active. Written by ConnectionSystem, read by
-    // RenderSystem for the highlight ring - UI feedback only.
-    connectionSnap = null;
-    hasEntity(entity) {
-      return this.entities.has(entity.id);
-    }
-    addEntity(entity) {
-      this.entities.set(entity.id, entity);
-      this.isDirty = true;
-    }
-    removeEntity(entity) {
-      this.entities.delete(entity.id);
-      this.isDirty = true;
-    }
-    clear() {
-      this.entities.clear();
-      this.isDirty = true;
-    }
-  };
-
   // src/component/IsMouseOver.ts
   var IsMouseOver = class extends Component {
     constructor(properties) {
       super(properties);
       this.properties = properties;
-    }
-  };
-
-  // src/component/IsMousePressed.ts
-  var IsMousePressed = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-    }
-  };
-
-  // src/component/ToolStateComponent.ts
-  var ToolStateComponent = class extends Component {
-    constructor(properties) {
-      super(properties);
-      this.properties = properties;
-    }
-    // Text-edit state, plain class fields like MouseComponent's counters (not
-    // constructor props, so addComponent call sites stay unchanged and nothing
-    // is implicitly undefined). reset() touches neither.
-    //
-    // Entity whose text is being edited in the DOM overlay; single source of
-    // truth read by RenderSystem and the keyboard/history guards.
-    editingEntityId = null;
-    // pressCount value recorded when a textarea click-away commit consumed a
-    // canvas press. Press consumers skip any press with
-    // pressCount <= suppressedPressCount for its ENTIRE hold (the counter is
-    // monotonic), so the commit click cannot select/drag/resize/connect.
-    suppressedPressCount = 0;
-    get currentTool() {
-      return this.properties.currentTool;
-    }
-    set currentTool(tool) {
-      this.properties.currentTool = tool;
-    }
-    get drawState() {
-      return this.properties.drawState;
-    }
-    set drawState(state) {
-      this.properties.drawState = state;
-    }
-    get startX() {
-      return this.properties.startX;
-    }
-    set startX(x) {
-      this.properties.startX = x;
-    }
-    get startY() {
-      return this.properties.startY;
-    }
-    set startY(y) {
-      this.properties.startY = y;
-    }
-    get previewEntityId() {
-      return this.properties.previewEntityId;
-    }
-    set previewEntityId(id) {
-      this.properties.previewEntityId = id;
-    }
-    reset() {
-      this.properties.drawState = "IDLE";
-      this.properties.startX = void 0;
-      this.properties.startY = void 0;
-      this.properties.previewEntityId = void 0;
     }
   };
 
@@ -1566,84 +1858,6 @@
   }
   function systemDesignLabel(tool) {
     return SYSTEM_DESIGN_TOOLS.find((t) => t.id === tool)?.label;
-  }
-
-  // src/collision.ts
-  function pointInRectangle(px, py, rx, ry, rw, rh) {
-    return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
-  }
-  function pointInCircle(px, py, cx, cy, radius) {
-    const dx = px - cx;
-    const dy = py - cy;
-    return dx * dx + dy * dy <= radius * radius;
-  }
-  function pointOnLine(px, py, x1, y1, x2, y2, tolerance = 5) {
-    const lineLengthSquared = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
-    if (lineLengthSquared === 0) {
-      const dx2 = px - x1;
-      const dy2 = py - y1;
-      return Math.sqrt(dx2 * dx2 + dy2 * dy2) <= tolerance;
-    }
-    let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / lineLengthSquared;
-    t = Math.max(0, Math.min(1, t));
-    const closestX = x1 + t * (x2 - x1);
-    const closestY = y1 + t * (y2 - y1);
-    const dx = px - closestX;
-    const dy = py - closestY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    return distance <= tolerance;
-  }
-
-  // src/shape.ts
-  var LINE_HIT_TOLERANCE = 5;
-  function hitTestEntity(entity, x, y, scale = 1) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
-      return pointInRectangle(x, y, comp.x, comp.y, comp.width, comp.height);
-    }
-    if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
-      return pointInCircle(x, y, comp.x, comp.y, comp.radius);
-    }
-    if (entity.hasComponent(LineComponent)) {
-      const comp = entity.getComponent(LineComponent);
-      return pointOnLine(x, y, comp.x1, comp.y1, comp.x2, comp.y2, LINE_HIT_TOLERANCE / scale);
-    }
-    return false;
-  }
-  function getEntityBounds(entity) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
-      return { x: comp.x, y: comp.y, width: comp.width, height: comp.height };
-    }
-    if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
-      return { x: comp.x - comp.radius, y: comp.y - comp.radius, width: comp.radius * 2, height: comp.radius * 2 };
-    }
-    if (entity.hasComponent(LineComponent)) {
-      const comp = entity.getComponent(LineComponent);
-      const x = Math.min(comp.x1, comp.x2);
-      const y = Math.min(comp.y1, comp.y2);
-      return { x, y, width: Math.abs(comp.x2 - comp.x1), height: Math.abs(comp.y2 - comp.y1) };
-    }
-    return null;
-  }
-  function moveEntityBy(entity, deltaX, deltaY) {
-    if (entity.hasComponent(RectangleComponent)) {
-      const comp = entity.getComponent(RectangleComponent);
-      comp.x += deltaX;
-      comp.y += deltaY;
-    } else if (entity.hasComponent(CircleComponent)) {
-      const comp = entity.getComponent(CircleComponent);
-      comp.x += deltaX;
-      comp.y += deltaY;
-    } else if (entity.hasComponent(LineComponent)) {
-      const comp = entity.getComponent(LineComponent);
-      comp.x1 += deltaX;
-      comp.y1 += deltaY;
-      comp.x2 += deltaX;
-      comp.y2 += deltaY;
-    }
   }
 
   // src/handles.ts
@@ -1938,6 +2152,8 @@
   var HANDLE_FILL_COLOR = "white";
   var HANDLE_STROKE_COLOR = "rgb(170 170 170)";
   var HANDLE_STROKE_WIDTH = 3;
+  var ARROW_LENGTH = 12;
+  var ARROW_HALF_WIDTH = 5;
   var RenderingSystem = class extends System {
     constructor(world, query, renderer) {
       super(world, query);
@@ -1980,10 +2196,17 @@
           this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
         } else if (entity.hasComponent(LineComponent)) {
           const comp = entity.getComponent(LineComponent);
+          const stroke = comp.strokeColor || "black";
           this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
-            strokeColor: comp.strokeColor || "black",
+            strokeColor: stroke,
             strokeWidth: comp.strokeWidth
           });
+          if (comp.arrowEnd === "arrow") {
+            this.drawArrowhead(comp.x2, comp.y2, comp.x1, comp.y1, stroke);
+          }
+          if (comp.arrowStart === "arrow") {
+            this.drawArrowhead(comp.x1, comp.y1, comp.x2, comp.y2, stroke);
+          }
         }
       });
       this.textCache.sweep(liveTextIds);
@@ -2071,6 +2294,33 @@
           this.drawHandle(handle.x, handle.y, scale);
         }
       });
+    }
+    /**
+     * Filled triangular arrowhead with its tip at (tipX, tipY), pointing away
+     * from (fromX, fromY) along the line direction.
+     */
+    drawArrowhead(tipX, tipY, fromX, fromY, color) {
+      const dx = tipX - fromX;
+      const dy = tipY - fromY;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len === 0) {
+        return;
+      }
+      const effLen = Math.min(ARROW_LENGTH, len / 2);
+      const effHalfWidth = effLen * ARROW_HALF_WIDTH / ARROW_LENGTH;
+      const ux = dx / len;
+      const uy = dy / len;
+      const baseX = tipX - ux * effLen;
+      const baseY = tipY - uy * effLen;
+      this.renderer.triangle(
+        tipX,
+        tipY,
+        baseX - uy * effHalfWidth,
+        baseY + ux * effHalfWidth,
+        baseX + uy * effHalfWidth,
+        baseY - ux * effHalfWidth,
+        { fillColor: color }
+      );
     }
     drawHandle(x, y, scale) {
       this.renderer.circle(x, y, HANDLE_RADIUS / scale, {
@@ -2583,6 +2833,7 @@
             y: mouseComp.pressY,
             width: 1,
             height: 1,
+            fillColor: "white",
             strokeColor: "black"
           });
           previewEntity.addComponent(IsRendered);
@@ -2666,6 +2917,7 @@
             x: mouseComp.pressX,
             y: mouseComp.pressY,
             radius: 1,
+            fillColor: "white",
             strokeColor: "black"
           });
           previewEntity.addComponent(IsRendered);
@@ -3012,6 +3264,7 @@
     // created once in setupECS - createQuery throws on duplicate ids.
     shapesQuery;
     history;
+    propertiesPanel;
     $undoBtn;
     $redoBtn;
     $sysBtn;
@@ -3108,7 +3361,13 @@
       this.resize();
       this.resizeObserver = new ResizeObserver(() => this.resize());
       this.resizeObserver.observe(this.$wrapper);
-      this.world.start();
+      this.propertiesPanel = new PropertiesPanel(
+        this.world,
+        this.$wrapper,
+        () => this.canApplyHistory(),
+        () => this.recordHistory()
+      );
+      this.world.start({ callbackFnAfterSystemsUpdate: () => this.propertiesPanel.update() });
     }
     static componentsRegistered = false;
     setupECS() {
@@ -3325,6 +3584,7 @@
       window.removeEventListener("mouseup", this.boundMouseup, { capture: true });
       document.removeEventListener("keydown", this.boundKeydown);
       this.world.stop();
+      this.propertiesPanel.destroy();
       this.container.removeChild(this.$wrapper);
     }
     /**
@@ -3366,6 +3626,8 @@
           data.y2 = comp.y2;
           data.strokeColor = comp.strokeColor;
           data.strokeWidth = comp.strokeWidth;
+          data.arrowStart = comp.arrowStart;
+          data.arrowEnd = comp.arrowEnd;
           if (entity.hasComponent(LineAttachmentComponent)) {
             const att = entity.getComponent(LineAttachmentComponent);
             data.attachment = { start: att.start, end: att.end };
@@ -3427,7 +3689,9 @@
               x2: shape.x2,
               y2: shape.y2,
               strokeColor,
-              strokeWidth: shape.strokeWidth
+              strokeWidth: shape.strokeWidth,
+              arrowStart: shape.arrowStart,
+              arrowEnd: shape.arrowEnd
             });
           }
         } else {
@@ -3456,6 +3720,8 @@
             comp.y2 = shape.y2;
             comp.strokeColor = strokeColor;
             comp.strokeWidth = shape.strokeWidth;
+            comp.arrowStart = shape.arrowStart;
+            comp.arrowEnd = shape.arrowEnd;
           }
         }
         if (shape.type === "line") {
@@ -3567,7 +3833,9 @@
             x2: comp.x2 + offset,
             y2: comp.y2 + offset,
             strokeColor: comp.strokeColor,
-            strokeWidth: comp.strokeWidth
+            strokeWidth: comp.strokeWidth,
+            arrowStart: comp.arrowStart,
+            arrowEnd: comp.arrowEnd
           });
         } else {
           this.world.removeEntity(copy.id);

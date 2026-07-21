@@ -215,6 +215,12 @@ export default class WebGLRenderer implements IRenderer {
     this.drawLineInternal(x1, y1, x2, y2, lineWidth);
   }
 
+  public triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, options?: DrawOptions): void {
+    const color = options?.fillColor || options?.strokeColor || "black";
+    this.setColor(parseColor(color));
+    this.drawTriangles(new Float32Array([x1, y1, x2, y2, x3, y3]));
+  }
+
   public maxTextureSize(): number {
     return this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
   }

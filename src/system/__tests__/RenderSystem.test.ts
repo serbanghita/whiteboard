@@ -38,6 +38,9 @@ function createMockRenderer(): IRenderer & { _calls: RecordedCall[] } {
     line: vi.fn((x1, y1, x2, y2, options) =>
       calls.push({ method: 'line', args: [x1, y1, x2, y2, options] })
     ),
+    triangle: vi.fn((x1, y1, x2, y2, x3, y3, options) =>
+      calls.push({ method: 'triangle', args: [x1, y1, x2, y2, x3, y3, options] })
+    ),
     dot: vi.fn((x, y, options) =>
       calls.push({ method: 'dot', args: [x, y, options] })
     ),
@@ -131,6 +134,55 @@ describe('RenderSystem', () => {
     expect(calls('line')).toEqual([
       { method: 'line', args: [10, 20, 60, 80, { strokeColor: 'black', strokeWidth: undefined }] },
     ]);
+  });
+
+  it('draws no arrowheads when arrow fields are unset', () => {
+    addShape('l1', LineComponent, { x1: 10, y1: 20, x2: 60, y2: 80 });
+    system.update(0);
+
+    expect(calls('triangle')).toHaveLength(0);
+  });
+
+  it('draws an arrowhead triangle at the end point, after the line, in the stroke color', () => {
+    addShape('l1', LineComponent, { x1: 0, y1: 0, x2: 100, y2: 0, strokeColor: '#e53935', arrowEnd: 'arrow' });
+    system.update(0);
+
+    const triangles = calls('triangle');
+    expect(triangles).toHaveLength(1);
+    // Tip at (x2, y2); base 12 world units back along the line; half-width 5.
+    expect(triangles[0].args).toEqual([100, 0, 88, 5, 88, -5, { fillColor: '#e53935' }]);
+    // The head caps the line: drawn after it.
+    const lineIndex = renderer._calls.findIndex((c) => c.method === 'line');
+    const triangleIndex = renderer._calls.findIndex((c) => c.method === 'triangle');
+    expect(triangleIndex).toBeGreaterThan(lineIndex);
+  });
+
+  it('draws an arrowhead at the start point when arrowStart is set', () => {
+    addShape('l1', LineComponent, { x1: 0, y1: 0, x2: 100, y2: 0, arrowStart: 'arrow' });
+    system.update(0);
+
+    const triangles = calls('triangle');
+    expect(triangles).toHaveLength(1);
+    // Tip at (x1, y1), pointing away from (x2, y2).
+    expect(triangles[0].args).toEqual([0, 0, 12, -5, 12, 5, { fillColor: 'black' }]);
+  });
+
+  it('draws both arrowheads when both ends are set', () => {
+    addShape('l1', LineComponent, { x1: 0, y1: 0, x2: 100, y2: 0, arrowStart: 'arrow', arrowEnd: 'arrow' });
+    system.update(0);
+
+    expect(calls('triangle')).toHaveLength(2);
+  });
+
+  it('clamps the arrowhead to half the line length on short lines', () => {
+    addShape('l1', LineComponent, { x1: 0, y1: 0, x2: 10, y2: 0, arrowEnd: 'arrow' });
+    system.update(0);
+
+    const triangles = calls('triangle');
+    expect(triangles).toHaveLength(1);
+    // effLen = min(12, 10/2) = 5; half-width scales to 5 * 5/12.
+    const hw = 5 * 5 / 12;
+    expect(triangles[0].args).toEqual([10, 0, 5, hw, 5, -hw, { fillColor: 'black' }]);
   });
 
   it('hovering draws nothing extra for an unselected shape', () => {

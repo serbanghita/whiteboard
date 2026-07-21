@@ -20,6 +20,12 @@ const HANDLE_FILL_COLOR = "white";
 const HANDLE_STROKE_COLOR = "rgb(170 170 170)";
 const HANDLE_STROKE_WIDTH = 3;
 
+// Arrowhead dimensions in world units (they zoom with the line, like strokes).
+// Clamped so a head never covers more than half of its line - the draw
+// minimum is a 5-unit line, far shorter than a full 12-unit head.
+const ARROW_LENGTH = 12;
+const ARROW_HALF_WIDTH = 5;
+
 export default class RenderingSystem extends System {
   // Per-entity text textures; retained state lives here, the renderer stays
   // immediate-mode.
@@ -78,10 +84,18 @@ export default class RenderingSystem extends System {
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(LineComponent)) {
         const comp = entity.getComponent(LineComponent);
+        const stroke = comp.strokeColor || "black";
         this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
-          strokeColor: comp.strokeColor || "black",
+          strokeColor: stroke,
           strokeWidth: comp.strokeWidth
         });
+        // Arrowheads cap the line, so they draw after it.
+        if (comp.arrowEnd === 'arrow') {
+          this.drawArrowhead(comp.x2, comp.y2, comp.x1, comp.y1, stroke);
+        }
+        if (comp.arrowStart === 'arrow') {
+          this.drawArrowhead(comp.x1, comp.y1, comp.x2, comp.y2, stroke);
+        }
       }
     });
 
@@ -192,6 +206,31 @@ export default class RenderingSystem extends System {
         this.drawHandle(handle.x, handle.y, scale);
       }
     });
+  }
+
+  /**
+   * Filled triangular arrowhead with its tip at (tipX, tipY), pointing away
+   * from (fromX, fromY) along the line direction.
+   */
+  private drawArrowhead(tipX: number, tipY: number, fromX: number, fromY: number, color: string): void {
+    const dx = tipX - fromX;
+    const dy = tipY - fromY;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) {
+      return;
+    }
+    const effLen = Math.min(ARROW_LENGTH, len / 2);
+    const effHalfWidth = effLen * ARROW_HALF_WIDTH / ARROW_LENGTH;
+    const ux = dx / len;
+    const uy = dy / len;
+    const baseX = tipX - ux * effLen;
+    const baseY = tipY - uy * effLen;
+    this.renderer.triangle(
+      tipX, tipY,
+      baseX - uy * effHalfWidth, baseY + ux * effHalfWidth,
+      baseX + uy * effHalfWidth, baseY - ux * effHalfWidth,
+      { fillColor: color },
+    );
   }
 
   private drawHandle(x: number, y: number, scale: number): void {

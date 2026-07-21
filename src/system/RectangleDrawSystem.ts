@@ -64,6 +64,7 @@ export default class RectangleDrawSystem extends System {
           y: mouseComp.pressY,
           width: 1,
           height: 1,
+          fillColor: 'white',
           strokeColor: 'black'
         });
         previewEntity.addComponent(IsRendered);

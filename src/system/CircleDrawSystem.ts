@@ -62,6 +62,7 @@ export default class CircleDrawSystem extends System {
           x: mouseComp.pressX,
           y: mouseComp.pressY,
           radius: 1,
+          fillColor: 'white',
           strokeColor: 'black'
         });
         previewEntity.addComponent(IsRendered);

@@ -2,6 +2,7 @@ import { Entity, Query, World } from "@serbanghita-gamedev/ecs";
 import { WebGLRenderer } from "./renderer";
 import { applyWheel, screenToWorld } from "./camera";
 import { HistoryManager } from "./HistoryManager";
+import PropertiesPanel from "./PropertiesPanel";
 
 // Components
 import RectangleComponent from "./component/RectangleComponent";
@@ -58,6 +59,7 @@ export class Whiteboard {
   // created once in setupECS - createQuery throws on duplicate ids.
   private shapesQuery!: Query;
   private history!: HistoryManager;
+  private propertiesPanel!: PropertiesPanel;
   private $undoBtn!: HTMLButtonElement;
   private $redoBtn!: HTMLButtonElement;
   private $sysBtn!: HTMLButtonElement;
@@ -174,7 +176,15 @@ export class Whiteboard {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.$wrapper);
 
-    this.world.start();
+    this.propertiesPanel = new PropertiesPanel(
+      this.world,
+      this.$wrapper,
+      () => this.canApplyHistory(),
+      () => this.recordHistory(),
+    );
+
+    // The panel repositions after the systems have finalized the frame.
+    this.world.start({ callbackFnAfterSystemsUpdate: () => this.propertiesPanel.update() });
   }
 
   private static componentsRegistered = false;
@@ -434,6 +444,7 @@ export class Whiteboard {
     window.removeEventListener('mouseup', this.boundMouseup, { capture: true });
     document.removeEventListener('keydown', this.boundKeydown);
     this.world.stop();
+    this.propertiesPanel.destroy();
     this.container.removeChild(this.$wrapper);
   }
 
@@ -474,6 +485,10 @@ export class Whiteboard {
           data.x2 = comp.x2; data.y2 = comp.y2;
           data.strokeColor = comp.strokeColor;
           data.strokeWidth = comp.strokeWidth;
+          // undefined (= no arrow) drops out of JSON.stringify, keeping
+          // legacy snapshots byte-identical.
+          data.arrowStart = comp.arrowStart;
+          data.arrowEnd = comp.arrowEnd;
           if (entity.hasComponent(LineAttachmentComponent)) {
             const att = entity.getComponent(LineAttachmentComponent);
             data.attachment = { start: att.start, end: att.end };
@@ -534,7 +549,8 @@ export class Whiteboard {
           entity.addComponent(LineComponent, {
             x1: shape.x1, y1: shape.y1,
             x2: shape.x2, y2: shape.y2,
-            strokeColor, strokeWidth: shape.strokeWidth
+            strokeColor, strokeWidth: shape.strokeWidth,
+            arrowStart: shape.arrowStart, arrowEnd: shape.arrowEnd
           });
         }
       } else {
@@ -556,6 +572,8 @@ export class Whiteboard {
           comp.x2 = shape.x2; comp.y2 = shape.y2;
           comp.strokeColor = strokeColor;
           comp.strokeWidth = shape.strokeWidth;
+          comp.arrowStart = shape.arrowStart;
+          comp.arrowEnd = shape.arrowEnd;
         }
       }
 
@@ -676,7 +694,8 @@ export class Whiteboard {
         copy.addComponent(LineComponent, {
           x1: comp.x1 + offset, y1: comp.y1 + offset,
           x2: comp.x2 + offset, y2: comp.y2 + offset,
-          strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+          strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth,
+          arrowStart: comp.arrowStart, arrowEnd: comp.arrowEnd
         });
       } else {
         this.world.removeEntity(copy.id);

@@ -1812,3 +1812,152 @@ describe("menu hover feedback", () => {
     clickMenuTool("cursor");
   });
 });
+
+// Draws a line via the real two-click tool flow and returns its entity.
+function drawLineShape(x1: number, y1: number, x2: number, y2: number): Entity {
+  setTool("line");
+  press(x1, y1);
+  frame();
+  release();
+  frame();
+  moveTo(x2, y2);
+  frame();
+  press(x2, y2);
+  frame();
+  release();
+  frame();
+  const ids = entityIdsByPrefix("line-");
+  return world.getEntity(ids[ids.length - 1])!;
+}
+
+describe("properties panel", () => {
+  function panel(): HTMLDivElement {
+    return document.querySelector(".properties-panel") as HTMLDivElement;
+  }
+
+  function clickPanel(selector: string) {
+    const btn = panel().querySelector(selector) as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  }
+
+  function clearSelection() {
+    setTool("cursor");
+    press(950, 750);
+    frame();
+    release();
+    frame();
+  }
+
+  it("appears 40px above a freshly drawn rectangle with fill and stroke swatches", () => {
+    drawRectangle(700, 300, 800, 360);
+
+    expect(panel().style.display).toBe("flex");
+    expect(panel().querySelectorAll('[data-prop="fill"]').length).toBe(8);
+    expect(panel().querySelectorAll('[data-prop="stroke"]').length).toBe(8);
+    // 48 is the panel's fixed height.
+    expect(parseFloat(panel().style.top)).toBe(300 - 40 - 48);
+
+    clearSelection();
+    expect(panel().style.display).toBe("none");
+  });
+
+  it("flips below the shape when there is no room above", () => {
+    drawRectangle(700, 10, 780, 60);
+
+    expect(panel().style.display).toBe("flex");
+    expect(parseFloat(panel().style.top)).toBe(60 + 40);
+
+    clearSelection();
+  });
+
+  it("hides during a drag gesture and returns on release", () => {
+    drawRectangle(700, 400, 780, 460);
+    expect(panel().style.display).toBe("flex");
+
+    press(740, 430);
+    frame();
+    expect(panel().style.display).toBe("none");
+
+    release();
+    frame();
+    expect(panel().style.display).toBe("flex");
+
+    clearSelection();
+  });
+
+  it("changes fill/stroke via swatches, one undo step each, no-op on re-click", () => {
+    const entity = drawRectangle(700, 500, 780, 560);
+    const comp = entity.getComponent(RectangleComponent);
+    // The new draw defaults.
+    expect(comp.fillColor).toBe("white");
+    expect(comp.strokeColor).toBe("black");
+    // The named defaults light up their hex swatches.
+    const whiteFill = panel().querySelector('[data-prop="fill"][data-color="#ffffff"]') as HTMLElement;
+    expect(whiteFill.style.border).toContain("2px");
+
+    clickPanel('[data-prop="stroke"][data-color="#e53935"]');
+    expect(comp.strokeColor).toBe("#e53935");
+    // Re-clicking the active swatch adds no undo step.
+    clickPanel('[data-prop="stroke"][data-color="#e53935"]');
+    clickPanel('[data-prop="fill"][data-color="#1e88e5"]');
+    expect(comp.fillColor).toBe("#1e88e5");
+
+    whiteboard.undo();
+    expect(comp.fillColor).toBe("white");
+    expect(comp.strokeColor).toBe("#e53935");
+    whiteboard.undo();
+    expect(comp.strokeColor).toBe("black");
+
+    clearSelection();
+  });
+
+  it("shows Start/End arrow controls for a line and serializes arrow toggles canonically", () => {
+    const entity = drawLineShape(700, 650, 820, 650);
+    const comp = entity.getComponent(LineComponent);
+    expect(panel().style.display).toBe("flex");
+    expect(panel().querySelectorAll("[data-arrow]").length).toBe(4);
+
+    const preArrow = whiteboard.saveShapes();
+    clickPanel('[data-lineend="end"][data-arrow="arrow"]');
+    expect(comp.arrowEnd).toBe("arrow");
+    expect(comp.arrowStart).toBeUndefined();
+    const saved = whiteboard.saveShapes();
+    expect(saved).toContain('"arrowEnd":"arrow"');
+
+    // Byte-stable load -> save roundtrip.
+    whiteboard.loadShapes(saved);
+    expect(whiteboard.saveShapes()).toBe(saved);
+
+    // loadShapes cleared the selection - reselect the line by clicking it.
+    setTool("cursor");
+    press(760, 650);
+    frame();
+    release();
+    frame();
+    expect(selectionComp().entities.size).toBe(1);
+
+    // Toggling back to None stores undefined: byte-identical to pre-arrow.
+    clickPanel('[data-lineend="end"][data-arrow="none"]');
+    expect(entity.getComponent(LineComponent).arrowEnd).toBeUndefined();
+    expect(whiteboard.saveShapes()).toBe(preArrow);
+
+    clearSelection();
+  });
+
+  it("duplicateSelection copies arrow settings", () => {
+    const entity = drawLineShape(700, 700, 800, 700);
+    clickPanel('[data-lineend="start"][data-arrow="arrow"]');
+    expect(entity.getComponent(LineComponent).arrowStart).toBe("arrow");
+
+    whiteboard.duplicateSelection();
+    frame();
+
+    const dupIds = entityIdsByPrefix("duplicate-");
+    const dup = world.getEntity(dupIds[dupIds.length - 1])!.getComponent(LineComponent);
+    expect(dup.arrowStart).toBe("arrow");
+    expect(dup.arrowEnd).toBeUndefined();
+
+    clearSelection();
+  });
+});

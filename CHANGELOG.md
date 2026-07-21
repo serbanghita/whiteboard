@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Contextual properties panel (`src/PropertiesPanel.ts`): a horizontal bar over the single
+  selected shape, 40px above it (flipping below when the shape is near the viewport top),
+  following the shape every frame and hiding during drags/resizes/draws/text edits. Rectangles
+  and circles get Fill + Stroke rows of 8 preset color swatches; lines get Start/End None|Arrow
+  segmented controls. Every change is exactly one undo step; colors and arrows survive
+  save/load, undo/redo, and Cmd+D duplication.
+- Line arrowheads: `LineComponent.arrowStart`/`arrowEnd` draw a filled triangle at that endpoint
+  in the line's stroke color (world-sized, zooming with the line, clamped to half the line
+  length on short lines), via a new `IRenderer.triangle` primitive.
+- New draw defaults: rectangles and circles are created with a white fill and black stroke
+  (previously unfilled). Shape text still renders on top of the fill; previously saved shapes
+  without a fill stay transparent.
+- Project tooling: the `typescript-lsp` Claude Code plugin is enabled at project scope
+  (`.claude/settings.json`), and CLAUDE.md now directs code navigation/diagnostics through the
+  TypeScript language server.
 - Menu hover feedback: every floating-menu and SYS-panel button tints light grey (#f0f0f0) while
   hovered. The active-tool and open-SYS highlights are preserved (only the hover tint is reset on
   mouse-out); disabled undo/redo buttons don't react.

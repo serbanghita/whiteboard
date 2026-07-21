@@ -1,5 +1,7 @@
 import { Component } from "@serbanghita-gamedev/ecs";
 
+export type ArrowStyle = 'none' | 'arrow';
+
 export interface LineComponentProps {
   x1: number;
   y1: number;
@@ -7,6 +9,10 @@ export interface LineComponentProps {
   y2: number;
   strokeColor?: string;
   strokeWidth?: number;
+  // undefined means 'none'; 'none' is never stored so serialization stays
+  // canonical (absent key) across toggles.
+  arrowStart?: ArrowStyle;
+  arrowEnd?: ArrowStyle;
 }
 
 export default class LineComponent extends Component<LineComponentProps> {
@@ -60,6 +66,22 @@ export default class LineComponent extends Component<LineComponentProps> {
 
   public set strokeWidth(value: number | undefined) {
     this.properties.strokeWidth = value;
+  }
+
+  public get arrowStart(): ArrowStyle | undefined {
+    return this.properties.arrowStart;
+  }
+
+  public set arrowStart(value: ArrowStyle | undefined) {
+    this.properties.arrowStart = value;
+  }
+
+  public get arrowEnd(): ArrowStyle | undefined {
+    return this.properties.arrowEnd;
+  }
+
+  public set arrowEnd(value: ArrowStyle | undefined) {
+    this.properties.arrowEnd = value;
   }
 
   public get length(): number {

@@ -225,6 +225,51 @@ describe('WebGLRenderer', () => {
     });
   });
 
+  describe('triangle', () => {
+    it('uploads the three vertices and draws them as one TRIANGLES call', () => {
+      renderer.triangle(0, 0, 10, 0, 5, 8);
+
+      const bufferCalls = gl._calls.filter(c => c.method === 'bufferData');
+      expect(bufferCalls.length).toBe(1);
+      expect(Array.from(bufferCalls[0].args[1] as Float32Array)).toEqual([0, 0, 10, 0, 5, 8]);
+
+      const drawCalls = gl._calls.filter(c => c.method === 'drawArrays');
+      expect(drawCalls.length).toBe(1);
+      expect(drawCalls[0].args[0]).toBe(gl.TRIANGLES);
+      expect(drawCalls[0].args[2]).toBe(3);
+    });
+
+    it('uses fillColor when provided', () => {
+      renderer.triangle(0, 0, 10, 0, 5, 8, { fillColor: 'blue' });
+
+      const uniform4fCalls = gl._calls.filter(c => c.method === 'uniform4f');
+      expect(uniform4fCalls.length).toBe(1);
+      // Blue color: [0, 0, 1, 1]
+      expect(uniform4fCalls[0].args[1]).toBe(0);
+      expect(uniform4fCalls[0].args[2]).toBe(0);
+      expect(uniform4fCalls[0].args[3]).toBe(1);
+    });
+
+    it('falls back to strokeColor, then black', () => {
+      renderer.triangle(0, 0, 10, 0, 5, 8, { strokeColor: 'red' });
+
+      let uniform4fCalls = gl._calls.filter(c => c.method === 'uniform4f');
+      // Red color: [1, 0, 0, 1]
+      expect(uniform4fCalls[0].args[1]).toBe(1);
+      expect(uniform4fCalls[0].args[2]).toBe(0);
+      expect(uniform4fCalls[0].args[3]).toBe(0);
+
+      gl._calls.length = 0;
+      renderer.triangle(0, 0, 10, 0, 5, 8);
+
+      uniform4fCalls = gl._calls.filter(c => c.method === 'uniform4f');
+      // Black color
+      expect(uniform4fCalls[0].args[1]).toBe(0);
+      expect(uniform4fCalls[0].args[2]).toBe(0);
+      expect(uniform4fCalls[0].args[3]).toBe(0);
+    });
+  });
+
   describe('dot', () => {
     it('delegates to circle with small radius', () => {
       renderer.dot(50, 50, { fillColor: 'red' });

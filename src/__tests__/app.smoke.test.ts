@@ -2051,4 +2051,189 @@ describe("inflated-bbox connection snapping", () => {
     expect(lineEntity.getComponent(LineAttachmentComponent).end)
       .toEqual({ entityId: r2.id, handleId: "n" });
   });
+
+  it("re-attaches a dragged endpoint to another shape and keeps it pinned", () => {
+    const d = drawRectangle(3000, 900, 3100, 1000);
+    const c = drawRectangle(3400, 900, 3500, 1000);
+    selectAt(3050, 950);
+    expect(selectionComp().hasEntity(d)).toBe(true);
+
+    // Dangling line into open space; the fresh line is auto-selected.
+    press(3100, 950);
+    frame();
+    moveTo(3250, 950);
+    frame();
+    release();
+    frame();
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    const line = lineEntity.getComponent(LineComponent);
+    expect(lineEntity.getComponent(LineAttachmentComponent).end).toBeNull();
+
+    // Grab the dangling 'end' handle and drag into C; nearest dot n(3450,900).
+    press(3250, 950);
+    frame();
+    moveTo(3450, 920);
+    frame();
+    expect(selectionComp().connectionSnap).toEqual({ entityId: c.id, handleId: "n" });
+    expect(line.x2).toBe(3450);
+    expect(line.y2).toBe(900);
+
+    release();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: c.id, handleId: "n" });
+    expect(selectionComp().connectionSnap).toBeNull();
+
+    // The pin is live: dragging C moves the endpoint with it.
+    selectAt(3430, 970);
+    expect(selectionComp().hasEntity(c)).toBe(true);
+    press(3430, 970);
+    frame();
+    moveTo(3430, 1000);
+    frame();
+    release();
+    frame();
+    expect(line.x2).toBe(3450);
+    expect(line.y2).toBe(930);
+  });
+
+  it("creates the attachment component when a plain line's endpoint is dropped on a shape", () => {
+    const e = drawRectangle(3300, 1150, 3400, 1250);
+    const lineEntity = drawLineShape(3000, 1200, 3100, 1250);
+    expect(lineEntity.hasComponent(LineAttachmentComponent)).toBe(false);
+    expect(selectionComp().hasEntity(lineEntity)).toBe(true);
+
+    // Grab the free end and drop it inside E; nearest dot e(3400,1200).
+    press(3100, 1250);
+    frame();
+    moveTo(3360, 1200);
+    frame();
+    release();
+    frame();
+
+    const attachment = lineEntity.getComponent(LineAttachmentComponent);
+    expect(attachment.start).toBeNull();
+    expect(attachment.end).toEqual({ entityId: e.id, handleId: "e" });
+    const line = lineEntity.getComponent(LineComponent);
+    expect(line.x2).toBe(3400);
+    expect(line.y2).toBe(1200);
+  });
+
+  it("does not snap the endpoint to the shape its other end is attached to", () => {
+    const f = drawRectangle(3000, 1400, 3100, 1500);
+    selectAt(3050, 1450);
+    expect(selectionComp().hasEntity(f)).toBe(true);
+
+    // Dangling line out of F's east dot.
+    press(3100, 1450);
+    frame();
+    moveTo(3250, 1450);
+    frame();
+    release();
+    frame();
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    const line = lineEntity.getComponent(LineComponent);
+    expect(lineEntity.getComponent(LineAttachmentComponent).start)
+      .toEqual({ entityId: f.id, handleId: "e" });
+
+    // Drag the free end back inside F: excluded, so it never snaps.
+    press(3250, 1450);
+    frame();
+    moveTo(3050, 1450);
+    frame();
+    expect(selectionComp().connectionSnap).toBeNull();
+    expect(line.x2).toBe(3050);
+
+    release();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end).toBeNull();
+    expect(line.x2).toBe(3050);
+    expect(line.y2).toBe(1450);
+  });
+
+  it("re-attaching in place records no extra undo step", () => {
+    const g = drawRectangle(3000, 1600, 3100, 1700);
+    const h = drawRectangle(3300, 1600, 3400, 1700);
+    selectAt(3050, 1650);
+    expect(selectionComp().hasEntity(g)).toBe(true);
+
+    // Connect G.e -> H.w via the inflation margin.
+    press(3100, 1650);
+    frame();
+    moveTo(3310, 1650);
+    frame();
+    release();
+    frame();
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineId = ids[ids.length - 1];
+    const lineEntity = world.getEntity(lineId)!;
+    const attachment = lineEntity.getComponent(LineAttachmentComponent);
+    expect(attachment.end).toEqual({ entityId: h.id, handleId: "w" });
+
+    // Grab the attached endpoint and release without moving: it re-snaps to
+    // the same point, so the snapshot dedups and no undo step is recorded.
+    press(3300, 1650);
+    frame();
+    release();
+    frame();
+    const line = lineEntity.getComponent(LineComponent);
+    expect(attachment.end).toEqual({ entityId: h.id, handleId: "w" });
+    expect(line.x2).toBe(3300);
+    expect(line.y2).toBe(1650);
+
+    // One undo steps past the whole connection (proof the in-place gesture
+    // inserted no snapshot); redo restores the attached line.
+    whiteboard.undo();
+    frame();
+    expect(world.getEntity(lineId)).toBeUndefined();
+    whiteboard.redo();
+    frame();
+    expect(world.getEntity(lineId)!.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: h.id, handleId: "w" });
+  });
+
+  it("undoes and redoes an endpoint re-attach as one step", () => {
+    drawRectangle(3000, 1800, 3100, 1900);
+    const j = drawRectangle(3300, 1800, 3400, 1900);
+    selectAt(3050, 1850);
+
+    // Dangling line into open space.
+    press(3100, 1850);
+    frame();
+    moveTo(3200, 1850);
+    frame();
+    release();
+    frame();
+    const ids = entityIdsByPrefix("connection-line-");
+    const lineEntity = world.getEntity(ids[ids.length - 1])!;
+    const line = lineEntity.getComponent(LineComponent);
+
+    // Re-attach the free end inside J; nearest dot e(3400,1850).
+    press(3200, 1850);
+    frame();
+    moveTo(3360, 1850);
+    frame();
+    release();
+    frame();
+    const attachment = lineEntity.getComponent(LineAttachmentComponent);
+    expect(attachment.end).toEqual({ entityId: j.id, handleId: "e" });
+    expect(line.x2).toBe(3400);
+
+    // Exactly one step: a single undo restores the dangling state, a single
+    // redo restores the attachment.
+    whiteboard.undo();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end).toBeNull();
+    expect(line.x2).toBe(3200);
+    expect(line.y2).toBe(1850);
+
+    whiteboard.redo();
+    frame();
+    expect(lineEntity.getComponent(LineAttachmentComponent).end)
+      .toEqual({ entityId: j.id, handleId: "e" });
+    expect(line.x2).toBe(3400);
+    expect(line.y2).toBe(1850);
+  });
 });

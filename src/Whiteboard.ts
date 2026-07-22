@@ -289,9 +289,19 @@ export class Whiteboard {
     this.world.createSystem(HistorySystem, historyQuery, () => this.recordHistory());
   }
 
+  // Idempotent + symmetric on the emitter's pause refcount: exactly one net
+  // pause() while read-only, undone by the matching transition back. The
+  // unconditional-pause version of this leaked +1 per call and permanently
+  // silenced outbound multiplayer traffic after one reconnect cycle.
+  // Known delta: no-op calls skip the housekeeping below (only affects the
+  // first init after page load, where the board is fresh anyway) - if that
+  // housekeeping is ever wanted there, call it explicitly, don't weaken the
+  // guard.
   public setReadOnly(readOnly: boolean) {
+    if (this.readOnly === readOnly) return;
     this.readOnly = readOnly;
-    this.events.pause();
+    if (readOnly) this.events.pause();   // held for the whole read-only period
+    this.events.pause();                 // housekeeping below must never emit
     const toolEntity = this.world.getEntity('tool');
     if (toolEntity) {
       toolEntity.getComponent(ToolStateComponent).reset();
@@ -299,7 +309,8 @@ export class Whiteboard {
     const selection = this.world.getEntity('selection')?.getComponent(SelectionRectangleComponent);
     if (selection) selection.clear();
     this.commitTextEditIfAny();
-    if (!readOnly) this.events.resume();
+    this.events.resume();
+    if (!readOnly) this.events.resume(); // release the read-only period's pause
   }
 
   public abortInteraction() {

@@ -12,7 +12,13 @@ export class EventEmitter {
   private listeners: Set<(event: WhiteboardEvent) => void> = new Set();
   // Refcounted so nested pauses compose: a remote apply's pause/resume pair
   // inside a read-only (paused) period must not un-pause the emitter.
-  private pauseDepth: number = 0;
+  private depth: number = 0;
+
+  // Read-only view for tests: a leaked pause (depth stuck > 0) silently kills
+  // all outbound multiplayer traffic, so regressions must be assertable.
+  public get pauseDepth(): number {
+    return this.depth;
+  }
 
   public on(listener: (event: WhiteboardEvent) => void): () => void {
     this.listeners.add(listener);
@@ -20,7 +26,7 @@ export class EventEmitter {
   }
 
   public emit(event: WhiteboardEvent): void {
-    if (this.pauseDepth > 0) return;
+    if (this.depth > 0) return;
     
     // 3. Local Singleton Blocklist
     if (
@@ -38,10 +44,10 @@ export class EventEmitter {
   }
 
   public pause(): void {
-    this.pauseDepth++;
+    this.depth++;
   }
 
   public resume(): void {
-    this.pauseDepth = Math.max(0, this.pauseDepth - 1);
+    this.depth = Math.max(0, this.depth - 1);
   }
 }

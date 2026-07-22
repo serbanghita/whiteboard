@@ -1,6 +1,6 @@
 {
   "name": "@serbanghita-gamedev/demo-whiteboard",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Demo of a simple whiteboard",
   "type": "module",
   "main": "src/index.ts",

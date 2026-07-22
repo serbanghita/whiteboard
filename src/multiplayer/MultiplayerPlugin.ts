@@ -28,8 +28,27 @@ export class MultiplayerPlugin {
   private isWebRTCReady = false;
   private tcpFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByUser = false;
   private unsubscribe: (() => void) | null = null;
+  private wakeListenersInstalled = false;
+
+  // Wake trigger: hidden tabs throttle the backoff chain to ~1/min, and a
+  // laptop wake sits out the rest of a long backoff - foreground/online
+  // events short-circuit straight to an attempt. Field arrow-fn so the
+  // listeners can be removed in disconnect().
+  private handleWake = () => {
+    if (this.closedByUser) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const state = this.ws?.readyState;
+    if (state === WebSocket.CONNECTING || state === WebSocket.OPEN) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempt = 0; // restart the ladder short - we have a fresh signal
+    this.connect();
+  };
 
   public userName = '';
   public userColor = '';
@@ -37,6 +56,23 @@ export class MultiplayerPlugin {
   constructor(private whiteboard: Whiteboard, private config: MultiplayerConfig) {}
 
   public connect(): void {
+    // Single-flight: a second socket for the same user would trip server
+    // preemption (A4) and force_disconnect us into permanent-offline.
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+      return;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    // Fully detach the previous socket: a late onclose from it would spawn
+    // a second parallel reconnect chain.
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.close();
+    }
     this.closedByUser = false;
     this.ws = new WebSocket(`${this.config.wsUrl}?token=${this.config.jwtToken}`);
 
@@ -64,10 +100,28 @@ export class MultiplayerPlugin {
     if (!this.unsubscribe) {
       this.unsubscribe = this.whiteboard.events.on((event: WhiteboardEvent) => this.handleLocalEvent(event));
     }
+    // Registered ONCE (guarded like unsubscribe) - registering per-connect
+    // would stack N duplicates over N reconnects.
+    if (!this.wakeListenersInstalled && typeof window !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleWake);
+      window.addEventListener('online', this.handleWake);
+      window.addEventListener('focus', this.handleWake);
+      this.wakeListenersInstalled = true;
+    }
   }
 
   public disconnect(): void {
     this.closedByUser = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.wakeListenersInstalled) {
+      document.removeEventListener('visibilitychange', this.handleWake);
+      window.removeEventListener('online', this.handleWake);
+      window.removeEventListener('focus', this.handleWake);
+      this.wakeListenersInstalled = false;
+    }
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.ws?.close();
@@ -76,10 +130,14 @@ export class MultiplayerPlugin {
 
   private scheduleReconnect(): void {
     if (this.closedByUser) return;
+    if (this.reconnectTimer) return; // one pending attempt at a time
     const backoff = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempt);
     const jitter = backoff * (0.5 + Math.random() * 0.5);
     this.reconnectAttempt++;
-    setTimeout(() => this.connect(), jitter);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, jitter);
   }
 
   private initWebRTC(): void {

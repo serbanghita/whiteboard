@@ -6,6 +6,14 @@ A lightweight, portable drawing application built with TypeScript using an Entit
 
 Draw and resize the basic shapes: **rectangle**, **circle**, and **connecting lines** between shapes.
 
+## Design Document (DESIGN.md)
+
+`DESIGN.md` (repo root) is the **living product/UX specification** for wipbin.com — target
+entities, styling, panels, palette, and the phased implementation roadmap, each section
+carrying a ✅/🚧/❌ status marker. CLAUDE.md documents how the code works *today*;
+DESIGN.md documents what the product *should be*. Whenever a feature lands, changes, or is
+descoped, update the matching DESIGN.md section and its status marker in the same change.
+
 ## External Dependencies (local file: links)
 
 `@serbanghita-gamedev/ecs` and `@serbanghita-gamedev/quadtree` are consumed **from the local

@@ -17,7 +17,7 @@ import LineComponent from "../component/LineComponent";
 import ToolStateComponent from "../component/ToolStateComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import LineAttachmentComponent from "../component/LineAttachmentComponent";
-import { DEFAULT_FILL, DEFAULT_STROKE } from "../palette";
+import { DEFAULT_FILL, DEFAULT_STROKE, PALETTE } from "../palette";
 import CameraComponent from "../component/CameraComponent";
 import TextComponent from "../component/TextComponent";
 import { applyWheel, screenToWorld, worldToScreen } from "../camera";
@@ -1852,12 +1852,19 @@ describe("properties panel", () => {
     frame();
   }
 
-  it("appears 40px above a freshly drawn rectangle with fill and stroke swatches", () => {
+  it("appears 40px above a freshly drawn rectangle with fill/stroke popovers", () => {
     drawRectangle(700, 300, 800, 360);
 
     expect(panel().style.display).toBe("flex");
-    expect(panel().querySelectorAll('[data-prop="fill"]').length).toBe(8);
-    expect(panel().querySelectorAll('[data-prop="stroke"]').length).toBe(8);
+    // Compact icon bar: fill + stroke items; swatches live in popovers.
+    expect(panel().querySelectorAll('[data-item]').length).toBe(2);
+    clickPanel('[data-item="fill"]');
+    expect(panel().querySelectorAll('[data-prop="fill"]').length).toBe(PALETTE.length);
+    expect(panel().querySelector('[data-prop="fill"][data-color="none"]')).toBeTruthy();
+    // Stroke popover excludes 'none' (undefined stroke renders as default).
+    clickPanel('[data-item="stroke"]');
+    expect(panel().querySelectorAll('[data-prop="stroke"]').length).toBe(PALETTE.length - 1);
+    expect(panel().querySelector('[data-prop="stroke"][data-color="none"]')).toBeNull();
     // 48 is the panel's fixed height.
     expect(parseFloat(panel().style.top)).toBe(300 - 40 - 48);
 
@@ -1895,22 +1902,104 @@ describe("properties panel", () => {
     // The canonical hex draw defaults.
     expect(comp.fillColor).toBe(DEFAULT_FILL);
     expect(comp.strokeColor).toBe(DEFAULT_STROKE);
-    // The defaults light up their swatches (case-insensitive).
-    const whiteFill = panel().querySelector('[data-prop="fill"][data-color="#ffffff"]') as HTMLElement;
+
+    const red = PALETTE.find((e) => e.id === "coral-red")!.hex!;
+    const blue = PALETTE.find((e) => e.id === "medium-blue")!.hex!;
+
+    clickPanel('[data-item="fill"]');
+    // The default fill lights up its swatch.
+    const whiteFill = panel().querySelector(`[data-prop="fill"][data-color="${DEFAULT_FILL}"]`) as HTMLElement;
     expect(whiteFill.style.border).toContain("2px");
 
-    clickPanel('[data-prop="stroke"][data-color="#e53935"]');
-    expect(comp.strokeColor).toBe("#e53935");
+    clickPanel('[data-item="stroke"]');
+    clickPanel(`[data-prop="stroke"][data-color="${red}"]`);
+    expect(comp.strokeColor).toBe(red);
     // Re-clicking the active swatch adds no undo step.
-    clickPanel('[data-prop="stroke"][data-color="#e53935"]');
-    clickPanel('[data-prop="fill"][data-color="#1e88e5"]');
-    expect(comp.fillColor).toBe("#1e88e5");
+    clickPanel(`[data-prop="stroke"][data-color="${red}"]`);
+    clickPanel('[data-item="fill"]');
+    clickPanel(`[data-prop="fill"][data-color="${blue}"]`);
+    expect(comp.fillColor).toBe(blue);
 
     whiteboard.undo();
     expect(comp.fillColor).toBe(DEFAULT_FILL);
-    expect(comp.strokeColor).toBe("#e53935");
+    expect(comp.strokeColor).toBe(red);
     whiteboard.undo();
     expect(comp.strokeColor).toBe(DEFAULT_STROKE);
+
+    clearSelection();
+  });
+
+  it("clears the fill via the 'none' swatch and highlights it", () => {
+    const entity = drawRectangle(830, 300, 890, 350);
+    const comp = entity.getComponent(RectangleComponent);
+
+    clickPanel('[data-item="fill"]');
+    clickPanel('[data-prop="fill"][data-color="none"]');
+    // 'none' stores the ABSENT key, JSON-identical to a never-filled shape.
+    expect(comp.fillColor).toBeUndefined();
+    frame();
+    const noneSwatch = panel().querySelector('[data-prop="fill"][data-color="none"]') as HTMLElement;
+    expect(noneSwatch.style.border).toContain("2px");
+
+    // Re-click is a no-op: no state change, no snapshot change.
+    const before = whiteboard.saveShapes();
+    clickPanel('[data-prop="fill"][data-color="none"]');
+    expect(whiteboard.saveShapes()).toBe(before);
+
+    whiteboard.undo();
+    expect(comp.fillColor).toBe(DEFAULT_FILL);
+    clearSelection();
+  });
+
+  it("commits stroke thickness on slider change; level 1 stores the absent key", () => {
+    const entity = drawRectangle(830, 400, 890, 450);
+    const comp = entity.getComponent(RectangleComponent);
+
+    clickPanel('[data-item="stroke"]');
+    const slider = panel().querySelector('input[data-slider="stroke-width"]') as HTMLInputElement;
+    expect(slider).toBeTruthy();
+    slider.value = "3";
+    slider.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(comp.strokeWidth).toBe(4); // level 3 -> world width 4
+
+    // Same-value change is a no-op (no phantom action).
+    const before = whiteboard.saveShapes();
+    slider.dispatchEvent(new window.Event("change", { bubbles: true }));
+    expect(whiteboard.saveShapes()).toBe(before);
+
+    whiteboard.undo();
+    expect(comp.strokeWidth).toBeUndefined(); // absent = width 1
+    clearSelection();
+  });
+
+  it("changes a line's stroke color via its Stroke popover", () => {
+    const entity = drawLineShape(830, 500, 930, 500);
+    const comp = entity.getComponent(LineComponent);
+    const green = PALETTE.find((e) => e.id === "forest-green")!.hex!;
+
+    clickPanel('[data-item="stroke"]');
+    clickPanel(`[data-prop="stroke"][data-color="${green}"]`);
+    expect(comp.strokeColor).toBe(green);
+
+    whiteboard.undo();
+    expect(comp.strokeColor).toBe(DEFAULT_STROKE);
+    clearSelection();
+  });
+
+  it("closes the popover on Escape and on outside mousedown", () => {
+    drawRectangle(830, 560, 890, 610);
+
+    clickPanel('[data-item="fill"]');
+    const popover = panel().querySelector(".properties-popover") as HTMLElement;
+    expect(popover.style.display).toBe("block");
+
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(popover.style.display).toBe("none");
+
+    clickPanel('[data-item="fill"]');
+    expect(popover.style.display).toBe("block");
+    document.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    expect(popover.style.display).toBe("none");
 
     clearSelection();
   });
@@ -1919,9 +2008,12 @@ describe("properties panel", () => {
     const entity = drawLineShape(700, 650, 820, 650);
     const comp = entity.getComponent(LineComponent);
     expect(panel().style.display).toBe("flex");
-    expect(panel().querySelectorAll("[data-arrow]").length).toBe(4);
+    // Line bar: Stroke + Start + End items; the caps live in popovers.
+    expect(panel().querySelectorAll('[data-item]').length).toBe(3);
 
     const preArrow = whiteboard.saveShapes();
+    clickPanel('[data-item="end"]');
+    expect(panel().querySelectorAll("[data-arrow]").length).toBe(2);
     clickPanel('[data-lineend="end"][data-arrow="arrow"]');
     expect(comp.arrowEnd).toBe("arrow");
     expect(comp.arrowStart).toBeUndefined();
@@ -1941,6 +2033,8 @@ describe("properties panel", () => {
     expect(selectionComp().entities.size).toBe(1);
 
     // Toggling back to None stores undefined: byte-identical to pre-arrow.
+    // (Reselection rebuilt the bar, so reopen the End popover.)
+    clickPanel('[data-item="end"]');
     clickPanel('[data-lineend="end"][data-arrow="none"]');
     expect(entity.getComponent(LineComponent).arrowEnd).toBeUndefined();
     expect(whiteboard.saveShapes()).toBe(preArrow);
@@ -1950,6 +2044,7 @@ describe("properties panel", () => {
 
   it("duplicateSelection copies arrow settings", () => {
     const entity = drawLineShape(700, 700, 800, 700);
+    clickPanel('[data-item="start"]');
     clickPanel('[data-lineend="start"][data-arrow="arrow"]');
     expect(entity.getComponent(LineComponent).arrowStart).toBe("arrow");
 

@@ -123,7 +123,7 @@ describe('RenderSystem', () => {
     system.update(0);
 
     expect(calls('rectangle')).toEqual([
-      { method: 'rectangle', args: [75, 85, 50, 30, { strokeColor: DEFAULT_STROKE, fillColor: undefined }] },
+      { method: 'rectangle', args: [75, 85, 50, 30, { strokeColor: DEFAULT_STROKE, fillColor: undefined, strokeWidth: undefined, strokeStyle: undefined }] },
     ]);
     expect(calls('dot')).toHaveLength(0);
   });
@@ -134,10 +134,10 @@ describe('RenderSystem', () => {
     system.update(0);
 
     expect(calls('circle')).toEqual([
-      { method: 'circle', args: [100, 100, 40, { strokeColor: DEFAULT_STROKE, fillColor: undefined }] },
+      { method: 'circle', args: [100, 100, 40, { strokeColor: DEFAULT_STROKE, fillColor: undefined, strokeWidth: undefined, strokeStyle: undefined }] },
     ]);
     expect(calls('line')).toEqual([
-      { method: 'line', args: [10, 20, 60, 80, { strokeColor: DEFAULT_STROKE, strokeWidth: undefined }] },
+      { method: 'line', args: [10, 20, 60, 80, { strokeColor: DEFAULT_STROKE, strokeWidth: undefined, strokeStyle: undefined, trimStart: 0, trimEnd: 0 }] },
     ]);
   });
 

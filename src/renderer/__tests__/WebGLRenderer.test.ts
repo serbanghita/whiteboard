@@ -144,6 +144,20 @@ describe('WebGLRenderer', () => {
       const drawCalls = gl._calls.filter(c => c.method === 'drawArrays');
       expect(drawCalls.length).toBe(4); // 4 lines for rectangle outline
     });
+
+    it('batches a dashed stroke into a single draw call', () => {
+      renderer.rectangle(10, 20, 100, 50, { strokeColor: 'black', strokeWidth: 3, strokeStyle: 'dashed' });
+
+      const drawCalls = gl._calls.filter(c => c.method === 'drawArrays');
+      expect(drawCalls.length).toBe(1); // every dash quad rides one buffer
+    });
+
+    it('batches a dotted stroke into a single draw call', () => {
+      renderer.rectangle(10, 20, 100, 50, { strokeColor: 'black', strokeWidth: 2, strokeStyle: 'dotted' });
+
+      const drawCalls = gl._calls.filter(c => c.method === 'drawArrays');
+      expect(drawCalls.length).toBe(1); // dots are squares in the same buffer
+    });
   });
 
   describe('circle', () => {

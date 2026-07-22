@@ -1,7 +1,18 @@
+import { StrokeStyle } from "../strokeStyle";
+
 export interface DrawOptions {
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
+  /** undefined = solid. Dash/dot patterns are world-space (zoom with the shape). */
+  strokeStyle?: StrokeStyle;
+  /**
+   * Distance (world units) to skip at a styled LINE's start/end - the arrow
+   * base, so a dash gap never separates an arrowhead from its line. Ignored
+   * for solid strokes and closed outlines.
+   */
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 /**

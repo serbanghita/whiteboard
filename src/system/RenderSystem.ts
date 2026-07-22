@@ -86,7 +86,8 @@ export default class RenderingSystem extends System {
         this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
           strokeColor: comp.strokeColor || DEFAULT_STROKE,
           fillColor: comp.fillColor,
-          strokeWidth: comp.strokeWidth
+          strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(CircleComponent)) {
@@ -94,15 +95,22 @@ export default class RenderingSystem extends System {
         this.renderer.circle(comp.x, comp.y, comp.radius, {
           strokeColor: comp.strokeColor || DEFAULT_STROKE,
           fillColor: comp.fillColor,
-          strokeWidth: comp.strokeWidth
+          strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(LineComponent)) {
         const comp = entity.getComponent(LineComponent);
         const stroke = comp.strokeColor || DEFAULT_STROKE;
+        // Styled lines trim the dash walk at each arrow base (same effective
+        // length as drawArrowhead), so a gap never separates head from line.
+        const arrowBase = Math.min(ARROW_LENGTH, comp.length / 2);
         this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
           strokeColor: stroke,
-          strokeWidth: comp.strokeWidth
+          strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle,
+          trimStart: comp.arrowStart === 'arrow' ? arrowBase : 0,
+          trimEnd: comp.arrowEnd === 'arrow' ? arrowBase : 0
         });
         // Arrowheads cap the line, so they draw after it.
         if (comp.arrowEnd === 'arrow') {

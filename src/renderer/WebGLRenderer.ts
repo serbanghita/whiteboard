@@ -7,6 +7,8 @@ import {
   texturedFragmentShaderSource,
 } from "./shaders";
 import { parseColor } from "./colorUtils";
+import { strokeGeometry, rectanglePath, circlePath, Point } from "./strokeGeometry";
+import { StrokeStyle } from "../strokeStyle";
 
 /**
  * WebGL implementation of IRenderer
@@ -132,12 +134,16 @@ export default class WebGLRenderer implements IRenderer {
       this.setColor(color);
       const lineWidth = options?.strokeWidth || 1;
 
-      // Draw four lines for the rectangle outline, half-width extended so
-      // thick strokes overlap at the corners instead of notching.
-      this.drawLineInternal(x1, y1, x2, y1, lineWidth, lineWidth / 2);
-      this.drawLineInternal(x2, y1, x2, y2, lineWidth, lineWidth / 2);
-      this.drawLineInternal(x2, y2, x1, y2, lineWidth, lineWidth / 2);
-      this.drawLineInternal(x1, y2, x1, y1, lineWidth, lineWidth / 2);
+      if (options?.strokeStyle) {
+        this.drawStyledStroke(rectanglePath(x1, y1, x2 - x1, y2 - y1), lineWidth, options.strokeStyle);
+      } else {
+        // Draw four lines for the rectangle outline, half-width extended so
+        // thick strokes overlap at the corners instead of notching.
+        this.drawLineInternal(x1, y1, x2, y1, lineWidth, lineWidth / 2);
+        this.drawLineInternal(x2, y1, x2, y2, lineWidth, lineWidth / 2);
+        this.drawLineInternal(x2, y2, x1, y2, lineWidth, lineWidth / 2);
+        this.drawLineInternal(x1, y2, x1, y1, lineWidth, lineWidth / 2);
+      }
     }
 
     // Default: draw black stroke if no options
@@ -178,19 +184,23 @@ export default class WebGLRenderer implements IRenderer {
       this.setColor(color);
       const lineWidth = options?.strokeWidth || 1;
 
-      // Line loop for circle outline; segments half-width extended so thick
-      // rings show no seams between chords.
-      for (let i = 0; i < segments; i++) {
-        const angle1 = (i / segments) * Math.PI * 2;
-        const angle2 = ((i + 1) / segments) * Math.PI * 2;
-        this.drawLineInternal(
-          cx + Math.cos(angle1) * radius,
-          cy + Math.sin(angle1) * radius,
-          cx + Math.cos(angle2) * radius,
-          cy + Math.sin(angle2) * radius,
-          lineWidth,
-          lineWidth / 2
-        );
+      if (options?.strokeStyle) {
+        this.drawStyledStroke(circlePath(cx, cy, radius, segments), lineWidth, options.strokeStyle);
+      } else {
+        // Line loop for circle outline; segments half-width extended so thick
+        // rings show no seams between chords.
+        for (let i = 0; i < segments; i++) {
+          const angle1 = (i / segments) * Math.PI * 2;
+          const angle2 = ((i + 1) / segments) * Math.PI * 2;
+          this.drawLineInternal(
+            cx + Math.cos(angle1) * radius,
+            cy + Math.sin(angle1) * radius,
+            cx + Math.cos(angle2) * radius,
+            cy + Math.sin(angle2) * radius,
+            lineWidth,
+            lineWidth / 2
+          );
+        }
       }
     }
 
@@ -215,7 +225,52 @@ export default class WebGLRenderer implements IRenderer {
     const color = options?.strokeColor ? parseColor(options.strokeColor) : [0, 0, 0, 1];
     this.setColor(color);
     const lineWidth = options?.strokeWidth || 1;
-    this.drawLineInternal(x1, y1, x2, y2, lineWidth);
+    if (options?.strokeStyle) {
+      this.drawStyledStroke([{ x: x1, y: y1 }, { x: x2, y: y2 }], lineWidth,
+        options.strokeStyle, options.trimStart, options.trimEnd);
+    } else {
+      this.drawLineInternal(x1, y1, x2, y2, lineWidth);
+    }
+  }
+
+  /**
+   * Dashed/dotted stroke: all dash quads and dot squares for one stroke are
+   * accumulated into a single vertex buffer and flushed with ONE draw call -
+   * a dotted outline routed through dot()/circle() would cost a triangle fan
+   * and a draw call per dot.
+   */
+  private drawStyledStroke(path: Point[], width: number, style: StrokeStyle,
+    trimStart: number = 0, trimEnd: number = 0): void {
+    const { segments, dots } = strokeGeometry(path, { width, style, trimStart, trimEnd });
+    const verts: number[] = [];
+    for (const s of segments) {
+      const dx = s.x2 - s.x1;
+      const dy = s.y2 - s.y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len === 0) continue;
+      const nx = (-dy / len) * (width / 2);
+      const ny = (dx / len) * (width / 2);
+      verts.push(
+        s.x1 - nx, s.y1 - ny,
+        s.x1 + nx, s.y1 + ny,
+        s.x2 - nx, s.y2 - ny,
+        s.x2 - nx, s.y2 - ny,
+        s.x1 + nx, s.y1 + ny,
+        s.x2 + nx, s.y2 + ny,
+      );
+    }
+    const half = width / 2;
+    for (const d of dots) {
+      verts.push(
+        d.x - half, d.y - half,
+        d.x + half, d.y - half,
+        d.x - half, d.y + half,
+        d.x - half, d.y + half,
+        d.x + half, d.y - half,
+        d.x + half, d.y + half,
+      );
+    }
+    if (verts.length > 0) this.drawTriangles(new Float32Array(verts));
   }
 
   public triangle(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, options?: DrawOptions): void {

@@ -304,6 +304,29 @@ describe("roundtrip and undo stability", () => {
     expect(world.getEntity("l1")!.getComponent(LineComponent).strokeColor).toBe(DEFAULT_STROKE);
   });
 
+  it("strokeStyle roundtrips through v2 and the absent key is canonical", () => {
+    const e = addCircle("circle-style", 500, 500, 25);
+    const comp = e.getComponent(CircleComponent);
+    const before = whiteboard.saveShapes();
+    expect(before).not.toContain("strokeStyle");
+
+    comp.strokeStyle = "dashed";
+    expect(whiteboard.saveShapes()).toContain('"strokeStyle":"dashed"');
+
+    const doc = whiteboard.save();
+    expect(doc).toContain('"strokeStyle":"dashed"');
+    clearBoard();
+    whiteboard.load(doc);
+    const reloaded = world.getEntity("circle-style")!.getComponent(CircleComponent);
+    expect(reloaded.strokeStyle).toBe("dashed");
+    expect(whiteboard.save()).toBe(doc);
+
+    // Toggling back to solid restores the absent key - byte-identical to a
+    // never-styled shape as far as the action differ is concerned.
+    reloaded.strokeStyle = undefined;
+    expect(whiteboard.saveShapes()).not.toContain("strokeStyle");
+  });
+
   it("saveShapes() is byte-identical before and after an export", () => {
     drawRect("gw", 10, 10, 100, 100);
     const snapshot = whiteboard.saveShapes();

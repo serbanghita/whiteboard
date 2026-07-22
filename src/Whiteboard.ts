@@ -715,6 +715,7 @@ export class Whiteboard {
       data.fillColor = comp.fillColor;
       data.strokeColor = comp.strokeColor;
       data.strokeWidth = comp.strokeWidth;
+      data.strokeStyle = comp.strokeStyle;
       // undefined (= plain rectangle) drops out of JSON.stringify,
       // keeping pre-sysType snapshots byte-identical.
       data.sysType = comp.sysType;
@@ -726,6 +727,7 @@ export class Whiteboard {
       data.fillColor = comp.fillColor;
       data.strokeColor = comp.strokeColor;
       data.strokeWidth = comp.strokeWidth;
+      data.strokeStyle = comp.strokeStyle;
     } else if (entity.hasComponent(LineComponent)) {
       const comp = entity.getComponent(LineComponent);
       data.type = 'line';
@@ -733,6 +735,7 @@ export class Whiteboard {
       data.x2 = comp.x2; data.y2 = comp.y2;
       data.strokeColor = comp.strokeColor;
       data.strokeWidth = comp.strokeWidth;
+      data.strokeStyle = comp.strokeStyle;
       // undefined (= no arrow) drops out of JSON.stringify, keeping
       // legacy snapshots byte-identical.
       data.arrowStart = comp.arrowStart;
@@ -795,19 +798,22 @@ export class Whiteboard {
             x: shape.x, y: shape.y,
             width: shape.width, height: shape.height,
             fillColor: shape.fillColor, strokeColor, strokeWidth: shape.strokeWidth,
+            strokeStyle: shape.strokeStyle,
             sysType: shape.sysType
           });
         } else if (shape.type === 'circle') {
           entity.addComponent(CircleComponent, {
             x: shape.x, y: shape.y,
             radius: shape.radius,
-            fillColor: shape.fillColor, strokeColor, strokeWidth: shape.strokeWidth
+            fillColor: shape.fillColor, strokeColor, strokeWidth: shape.strokeWidth,
+            strokeStyle: shape.strokeStyle
           });
         } else if (shape.type === 'line') {
           entity.addComponent(LineComponent, {
             x1: shape.x1, y1: shape.y1,
             x2: shape.x2, y2: shape.y2,
             strokeColor, strokeWidth: shape.strokeWidth,
+            strokeStyle: shape.strokeStyle,
             arrowStart: shape.arrowStart, arrowEnd: shape.arrowEnd
           });
         }
@@ -818,6 +824,7 @@ export class Whiteboard {
           comp.width = shape.width; comp.height = shape.height;
           comp.fillColor = shape.fillColor; comp.strokeColor = strokeColor;
           comp.strokeWidth = shape.strokeWidth;
+          comp.strokeStyle = shape.strokeStyle;
           // Doubles as the remove-reconcile: undoing across a SYS-shape
           // creation restores undefined.
           comp.sysType = shape.sysType;
@@ -827,12 +834,14 @@ export class Whiteboard {
           comp.radius = shape.radius;
           comp.fillColor = shape.fillColor; comp.strokeColor = strokeColor;
           comp.strokeWidth = shape.strokeWidth;
+          comp.strokeStyle = shape.strokeStyle;
         } else if (shape.type === 'line' && entity.hasComponent(LineComponent)) {
           const comp = entity.getComponent(LineComponent);
           comp.x1 = shape.x1; comp.y1 = shape.y1;
           comp.x2 = shape.x2; comp.y2 = shape.y2;
           comp.strokeColor = strokeColor;
           comp.strokeWidth = shape.strokeWidth;
+          comp.strokeStyle = shape.strokeStyle;
           comp.arrowStart = shape.arrowStart;
           comp.arrowEnd = shape.arrowEnd;
         }
@@ -1011,6 +1020,7 @@ export class Whiteboard {
           x: comp.x + offset, y: comp.y + offset,
           width: comp.width, height: comp.height,
           fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle,
           sysType: comp.sysType
         });
       } else if (source.hasComponent(CircleComponent)) {
@@ -1018,7 +1028,8 @@ export class Whiteboard {
         copy.addComponent(CircleComponent, {
           x: comp.x + offset, y: comp.y + offset,
           radius: comp.radius,
-          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth
+          fillColor: comp.fillColor, strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle
         });
       } else if (source.hasComponent(LineComponent)) {
         const comp = source.getComponent(LineComponent);
@@ -1026,6 +1037,7 @@ export class Whiteboard {
           x1: comp.x1 + offset, y1: comp.y1 + offset,
           x2: comp.x2 + offset, y2: comp.y2 + offset,
           strokeColor: comp.strokeColor, strokeWidth: comp.strokeWidth,
+          strokeStyle: comp.strokeStyle,
           arrowStart: comp.arrowStart, arrowEnd: comp.arrowEnd
         });
       } else {
@@ -1205,6 +1217,7 @@ export class Whiteboard {
                          x2: Math.round(s.x2), y2: Math.round(s.y2) };
         if (s.strokeColor && normalizeColor(s.strokeColor) !== DEFAULT_STROKE) e.stroke = s.strokeColor;
         if (s.strokeWidth && s.strokeWidth !== 1) e.strokeWidth = s.strokeWidth;
+        if (s.strokeStyle) e.strokeStyle = s.strokeStyle;
         if (s.arrowStart) e.arrowStart = s.arrowStart;
         if (s.arrowEnd) e.arrowEnd = s.arrowEnd;
         if (s.attachment?.start) e.from = `${s.attachment.start.entityId}:${s.attachment.start.handleId}`;
@@ -1223,6 +1236,7 @@ export class Whiteboard {
         else if (normalizeColor(s.fillColor) !== DEFAULT_FILL) n.fill = s.fillColor;
         if (s.strokeColor && normalizeColor(s.strokeColor) !== DEFAULT_STROKE) n.stroke = s.strokeColor;
         if (s.strokeWidth && s.strokeWidth !== 1) n.strokeWidth = s.strokeWidth;
+        if (s.strokeStyle) n.strokeStyle = s.strokeStyle;
         if (s.text) {
           const isDefaultFont = s.text.fontSize === 16 && s.text.fontFamily === 'sans-serif' && s.text.color === 'black';
           n.text = isDefaultFont ? s.text.content : s.text;
@@ -1279,6 +1293,7 @@ export class Whiteboard {
         fillColor: n.fill === 'none' ? undefined : (n.fill ?? DEFAULT_FILL),
         strokeColor: n.stroke ?? DEFAULT_STROKE,
         strokeWidth: n.strokeWidth,
+        strokeStyle: n.strokeStyle === 'dashed' || n.strokeStyle === 'dotted' ? n.strokeStyle : undefined,
         text: typeof n.text === 'string'
           ? { content: n.text, fontSize: 16, fontFamily: 'sans-serif', color: 'black' }
           : n.text,
@@ -1293,6 +1308,7 @@ export class Whiteboard {
           id: e.id, type: 'line',
           x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2,
           strokeColor: e.stroke ?? DEFAULT_STROKE, strokeWidth: e.strokeWidth,
+          strokeStyle: e.strokeStyle === 'dashed' || e.strokeStyle === 'dotted' ? e.strokeStyle : undefined,
           arrowStart: e.arrowStart, arrowEnd: e.arrowEnd,
           attachment: (start || end) ? { start, end } : undefined,
         };

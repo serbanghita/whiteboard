@@ -1,4 +1,5 @@
 import { Component } from "@serbanghita-gamedev/ecs";
+import { StrokeStyle } from "../strokeStyle";
 
 export interface CircleComponentProps {
   x: number;
@@ -7,6 +8,8 @@ export interface CircleComponentProps {
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
+  // undefined means solid; 'solid' is never stored (canonical absent key).
+  strokeStyle?: StrokeStyle;
 }
 
 export default class CircleComponent extends Component<CircleComponentProps> {
@@ -60,5 +63,13 @@ export default class CircleComponent extends Component<CircleComponentProps> {
 
   public set strokeWidth(value: number | undefined) {
     this.properties.strokeWidth = value;
+  }
+
+  public get strokeStyle(): StrokeStyle | undefined {
+    return this.properties.strokeStyle;
+  }
+
+  public set strokeStyle(value: StrokeStyle | undefined) {
+    this.properties.strokeStyle = value;
   }
 }

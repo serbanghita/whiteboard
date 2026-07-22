@@ -1,4 +1,5 @@
 import { Component } from "@serbanghita-gamedev/ecs";
+import { StrokeStyle } from "../strokeStyle";
 
 export interface RectangleComponentProps {
   x: number;
@@ -8,6 +9,8 @@ export interface RectangleComponentProps {
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
+  // undefined means solid; 'solid' is never stored (canonical absent key).
+  strokeStyle?: StrokeStyle;
   // Original system-design tool id (e.g. 'gw') for shapes drawn from the SYS
   // panel; absent on plain rectangles. The label text is user-editable, so
   // this is the only durable record of the semantic type.
@@ -73,6 +76,14 @@ export default class RectangleComponent extends Component<RectangleComponentProp
 
   public set strokeWidth(value: number | undefined) {
     this.properties.strokeWidth = value;
+  }
+
+  public get strokeStyle(): StrokeStyle | undefined {
+    return this.properties.strokeStyle;
+  }
+
+  public set strokeStyle(value: StrokeStyle | undefined) {
+    this.properties.strokeStyle = value;
   }
 
   public get sysType(): string | undefined {

@@ -26,25 +26,25 @@ The goal is to quickly prototype a flow, mindmap, or system design.
 The whiteboard contains only primitive entities: `Rectangle`, `Circle`, `Line`, `Text`.
 Rectangles and circles can contain text. All primitives have custom style properties.
 
-### `Rectangle` 🚧
+### `Rectangle` ✅
 
 | Property | Status |
 |---|---|
-| Stroke Color | ✅ (8 preset swatches today; target palette below ❌) |
-| Stroke Style (solid / dashed / dotted) | ❌ |
-| Stroke Thickness (4 levels) | ❌ |
-| Fill Color | ✅ (8 preset swatches today) |
+| Stroke Color | ✅ (24-color palette) |
+| Stroke Style (solid / dashed / dotted) | ✅ |
+| Stroke Thickness (4 levels) | ✅ |
+| Fill Color | ✅ (24-color palette incl. No color) |
 | Text | ✅ (double-click to edit, wrapped + centered) |
 | Width, Height | ✅ |
 | Position | ✅ |
 
-### `Circle` 🚧
+### `Circle` ✅
 
 | Property | Status |
 |---|---|
-| Stroke Color | ✅ (8 preset swatches today) |
-| Stroke Style | ❌ |
-| Stroke Thickness | ❌ |
+| Stroke Color | ✅ (24-color palette) |
+| Stroke Style | ✅ |
+| Stroke Thickness | ✅ |
 | Fill Color | ✅ |
 | Text | ✅ |
 | Radius | ✅ |
@@ -54,9 +54,9 @@ Rectangles and circles can contain text. All primitives have custom style proper
 
 | Property | Status |
 |---|---|
-| Stroke Color | 🚧 (stored per line, but the panel exposes no color control for lines yet) |
-| Stroke Style | ❌ |
-| Stroke Thickness | ❌ |
+| Stroke Color | ✅ (Stroke popover on the line's panel) |
+| Stroke Style | ✅ |
+| Stroke Thickness | ✅ |
 | Start, End points | ✅ (individually draggable endpoints) |
 | Start/End caps: None \| Arrow | ✅ |
 | Type: Straight (default) | ✅ |
@@ -77,11 +77,13 @@ Free-standing text placed directly on the board (distinct from text *inside* a s
 | Font size | ❌ |
 | Position | ❌ |
 
-## Color palette ❌
+## Color palette ✅
 
 The single palette used everywhere a color is picked (stroke, fill, text). 6 rows × 4.
-The current implementation still uses an older 8-swatch set; migrating to this palette is
-planned (see Roadmap).
+Implemented in `src/palette.ts` (single source of truth; legacy stored values normalize
+to their nearest palette color for highlighting/default-omission). "No color" applies to
+**fills only**, for now — an absent stroke renders as the default stroke, so the stroke
+picker offers 23 colors.
 
 | Row | 1 | 2 | 3 | 4 |
 |---|---|---|---|---|
@@ -108,21 +110,24 @@ Each entity, when selected, shows a panel **40px above** the entity by default; 
 viewport doesn't permit that, the panel is automatically placed **below** the entity. ✅
 
 The panel exposes all the entity's style properties as items (icon or text). **Each icon
-must depict the property's current value.** The current implementation shows inline
-swatch rows instead of the icon + popover design below — the redesign is planned. ❌
+must depict the property's current value.** ✅ (icon bar + popovers; one popover open at
+a time, Escape/outside-click closes, panel repositioning never closes an open popover)
 
-- **Stroke** ❌ (target design)
-  - Icon: an empty square whose border is drawn in the currently selected stroke color.
+- **Stroke** ✅ (all shapes, lines included)
+  - Icon: an empty square whose border shows the current stroke color, width AND style.
   - Clicking opens a popover below the icon with sections:
-    - **Stroke Color** — the pre-defined palette
-    - **Stroke Thickness** — a slider with 4 thickness levels
+    - **Stroke Color** — the pre-defined palette (without "No color")
+    - **Stroke Thickness** — a slider with 4 thickness levels (world widths 1/2/4/6;
+      level 1 is stored as the absent key)
     - **Stroke Style** — 3 icon options: Solid line, Dashed line, Dotted line
-- **Fill** ❌ (target design; today: inline swatch row ✅ with the old 8 colors)
-  - Icon: a borderless square filled with the currently selected fill color.
+      (solid is stored as the absent key)
+- **Fill** ✅ (rect/circle)
+  - Icon: a square filled with the currently selected fill color (diagonal-line glyph
+    when transparent).
   - Clicking opens a popover below the icon with:
-    - **Fill Color** — the pre-defined palette
-- **Line Start / End** 🚧 (exists today as inline None|Arrow segmented controls; popover redesign pending)
-  - Icon: a square depicting the current value.
+    - **Fill Color** — the full palette; "No color" clears the fill (absent key)
+- **Line Start / End** ✅
+  - Icon: a square depicting the current value (arrow glyph or —).
   - Clicking opens a popover below the icon with options:
     - **None** — textual
     - **Arrow** — an arrow pointing left or right depending on whether it's Start or End
@@ -179,8 +184,7 @@ A floating panel with the following groups:
 ## Color picker
 
 The color picker only ever offers the set of pre-defined colors from the
-[Color palette](#color-palette) — no free-form color input. 🚧 (picker exists; still on
-the old 8-color set)
+[Color palette](#color-palette) — no free-form color input. ✅
 
 ## Undo/Redo ✅
 
@@ -206,19 +210,24 @@ must be added to this format as they land, keeping the same defaults-omitted dis
 Ordered by priority. Each phase should become a plan folder (project plan-execute flow)
 when picked up; update the status markers above as items land.
 
-### Phase 1 — Styling (first)
+### Phase 1 — Styling ✅ (done; plan `styling-palette-stroke-panel`)
 
-1. Palette module: the 24-color palette as a single source of truth (ids, hex, labels,
-   "no color" sentinel), used by every picker.
-2. Data: `strokeStyle` (`solid`/`dashed`/`dotted`, absent = solid) and `strokeWidth`
-   (4 levels, absent = level 1) on Rectangle/Circle/Line components — absent-key
-   canonical form so undo snapshots stay byte-stable.
-3. Renderer: dashed/dotted stroke support and variable stroke width in the WebGL
-   renderer (lines and shape outlines).
-4. Panel redesign: icon-based items (icon depicts current value) with popovers below
-   (Stroke: color + thickness slider + style; Fill: color; Line: caps popover + stroke
-   controls). One undo step per change; popovers close on outside click/Escape.
-5. Serialization: v2 export/import of the new properties, defaults omitted; old files load.
+1. ✅ Palette module `src/palette.ts` (ids/hex/labels, "no color" sentinel, legacy
+   normalization, canonical draw defaults `#FFFFFF`/`#202020`).
+2. ✅ `strokeStyle` + `strokeWidth` on all three shape components, absent-key canonical
+   (a no-op toggle produces a JSON-identical shape record — no phantom actions in the
+   history/action differ, nothing broadcast to peers).
+3. ✅ Renderer: variable width was already quad-based; dashed/dotted added via the pure
+   `src/renderer/strokeGeometry.ts` (continuous phase across corners, arrow-base trims)
+   with all dash quads/dots batched into ONE draw call per stroke; thick strokes
+   miter-by-overlap at corners; thick-line hit tolerance covers the visible edge.
+4. ✅ Panel redesign (see "Whiteboard entity — panel"); thickness slider commits on
+   `change` only.
+5. ✅ Serialization: v2 export/import, defaults omitted (compare-only normalization so
+   legacy boards are never recolored on export); old files load.
+
+Known/accepted: the tight selection box ignores stroke width, so a thick stroke pokes
+half its width outside the box (cosmetic; revisit only if it bothers users).
 
 ### Phase 2 — Text entity
 

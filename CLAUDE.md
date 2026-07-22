@@ -55,12 +55,26 @@ src/
 │                               #   undo()/redo(), destroy()
 ├── HistoryManager.ts           # Pure undo/redo stack over saveShapes() JSON strings (string-equality
 │                               #   dedup, redo-clear on push, 100-step cap, onStateChange callback)
-├── PropertiesPanel.ts          # Contextual DOM bar over the single selected shape (fill/stroke
-│                               #   swatches for rect/circle, start/end None|Arrow segments for
-│                               #   lines); repositioned every frame via world.start's
-│                               #   callbackFnAfterSystemsUpdate, 40px above the shape (flips
-│                               #   below at the viewport top), hidden during any gesture; every
-│                               #   change is one undo step via the canCommit/onCommit closures
+├── PropertiesPanel.ts          # Contextual icon bar over the single selected shape (DESIGN.md
+│                               #   "Whiteboard entity - panel"): rect/circle = Fill + Stroke
+│                               #   icons, line = Stroke + Start + End; each icon depicts the
+│                               #   current value and opens a popover (Fill: 24-swatch palette
+│                               #   grid incl. 'none' = absent fillColor; Stroke: 23 swatches +
+│                               #   4-level thickness slider (commits on 'change' only, level 1
+│                               #   = absent strokeWidth) + solid/dashed/dotted style buttons).
+│                               #   One popover at a time, Escape/outside-mousedown close it (doc
+│                               #   listeners, capture), repositioning never closes it; per-frame
+│                               #   refresh PATCHES only (never rebuilds popover DOM). Positioned
+│                               #   40px above the shape (flips below at the viewport top), hidden
+│                               #   during any gesture; every change is one undo step via the
+│                               #   canCommit/onCommit closures, same-value clicks are no-ops
+├── palette.ts                  # 24-color palette (6x4, DESIGN.md), single source of truth for
+│                               #   every picker: 'none' sentinel (fills only), DEFAULT_FILL
+│                               #   '#FFFFFF' / DEFAULT_STROKE '#202020', normalizeColor maps
+│                               #   legacy stored values (named colors, old 8-swatch hexes) to
+│                               #   palette hexes UPPERCASE - compare-only in the exporter
+├── strokeStyle.ts              # StrokeStyle type ('dashed' | 'dotted'; absent = solid, 'solid'
+│                               #   never stored - canonical absent key)
 ├── collision.ts                # pointInRectangle / pointInCircle / pointOnLine helpers
 ├── shape.ts                    # Shape-agnostic hitTestEntity / getEntityBounds / moveEntityBy
 ├── camera.ts                   # Pure camera math: screenToWorld/worldToScreen, zoom-at-cursor, pan, applyWheel
@@ -83,7 +97,12 @@ src/
 │                               #   buttons and the label stamped on drawn shapes
 ├── renderer/                   # WebGL renderer (IRenderer, WebGLRenderer, shaders, colorUtils);
 │                               #   primitives: rectangle, circle, line, triangle (filled, used
-│                               #   for line arrowheads), dot, textured quads
+│                               #   for line arrowheads), dot, textured quads. All strokes are
+│                               #   width-aware triangulated quads (no GL lines); rect edges and
+│                               #   circle chords extend by width/2 (miter-by-overlap, no corner
+│                               #   notches). strokeGeometry.ts = pure dash/dot math (8/6 dash,
+│                               #   dots at 2x width, phase continuous across corners, arrow-base
+│                               #   trims); a styled stroke's quads/dots batch into ONE draw call
 ├── __mocks__/webgl.ts          # Mock WebGL context for headless tests
 ├── __tests__/app.smoke.test.ts # Boots the real app in jsdom, drives tools frame-by-frame
 ├── __tests__/serialization.test.ts   # save()/load() v2 + fallbacks, roundtrip identity, undo
@@ -281,35 +300,46 @@ Systems detect press/release **edges** by comparing `pressCount`/`releaseCount` 
 - **Zoom + pan camera** (`camera` entity, `src/camera.ts`): pinch / ctrl/cmd+wheel zooms toward the
   cursor (0.1×–8×), plain wheel pans. Shapes stay in world coords; the vertex shader applies
   `u_translate`/`u_scale` (RenderSystem pushes them via `IRenderer.setCamera` each frame).
-  Screen-constant UI divides by scale: line hit tolerance (`hitTestEntity(..., scale)`), handle
-  hit radius (`handleAtPoint(..., scale)`), selection stroke + handle sizes (RenderSystem).
+  Screen-constant UI divides by scale: line hit tolerance (`hitTestEntity(..., scale)`; thick
+  lines widen it to `max(5/scale, strokeWidth/2 + 2/scale)` so the visible edge stays
+  clickable), handle hit radius (`handleAtPoint(..., scale)`), selection stroke + handle
+  sizes (RenderSystem).
   Shape strokes scale with the world; draw min-sizes stay world-space. DPR backing-store scaling
   is independent of camera zoom
-- **Contextual properties panel** (`src/PropertiesPanel.ts`): a horizontal DOM bar appears 40px
+- **Contextual properties panel** (`src/PropertiesPanel.ts`): a compact icon bar appears 40px
   above the single selected shape (cursor tool only; flips below when the shape is near the
   viewport top, clamped inside the wrapper), repositioned every frame via
-  `world.start({ callbackFnAfterSystemsUpdate })`. Rect/circle: Fill + Stroke rows of 8 preset
-  swatches (white, black, red, orange, yellow, green, blue, purple; active swatch gets a blue
-  border, named `black`/`white` defaults normalize to their hex swatches). Line: Start/End
-  segmented None|Arrow controls toggling `LineComponent.arrowStart/arrowEnd`. Hidden during any
-  gesture (mouse held, draw in progress, text edit open). Each change is exactly one undo step
-  (`recordHistory()`; same-value clicks are no-ops); colors and arrows serialize through
-  `saveShapes()`/`loadShapes()` and are copied by Cmd+D. Panel clicks never reach the canvas
-  (sibling element), so the selection survives them
+  `world.start({ callbackFnAfterSystemsUpdate })`. Each icon depicts the current value and
+  opens a popover below it (one at a time; Escape/outside-mousedown close it; a downward
+  popover that would clip flips above the bar). Rect/circle: Fill (24-swatch palette grid,
+  'none' clears to the absent key) + Stroke; line: Stroke + Start/End cap popovers. The
+  Stroke popover = 23 color swatches (no 'none') + a 4-level thickness slider (commits on
+  `change` only; level 1 stores the absent strokeWidth; levels map to world widths 1/2/4/6,
+  nearest level highlights) + solid/dashed/dotted style buttons ('solid' stores the absent
+  strokeStyle). Hidden during any gesture (mouse held, draw in progress, text edit open).
+  Each change is exactly one undo step (`recordHistory()`; same-value clicks are no-ops -
+  and MUST be, since a phantom diff would also broadcast to multiplayer peers); all style
+  fields serialize through `saveShapes()`/`loadShapes()` and are copied by Cmd+D. Panel
+  clicks never reach the canvas (sibling element), so the selection survives them. Thick
+  strokes overhang the tight selection box by width/2 - known cosmetic, accepted
 - **Line arrowheads** (RenderSystem + `IRenderer.triangle`): filled triangles at either endpoint
   per `arrowStart`/`arrowEnd`, in the line's stroke color, world-sized 12×10 (zoom with the
   line) and clamped to half the line length so short lines stay sane; drawn after the line so
   they cap it
-- **Draw defaults**: rectangles and circles are created with `fillColor: 'white'` +
-  `strokeColor: 'black'` (previously no fill). A shape's text always draws on top of its own
-  fill (shape first, text immediately after); legacy loaded shapes without a fill stay
-  transparent
+- **Draw defaults**: shapes are created with the canonical palette hexes `DEFAULT_FILL`
+  `#FFFFFF` + `DEFAULT_STROKE` `#202020` (`src/palette.ts`; the old named `'white'`/`'black'`
+  stamps still normalize to these for highlighting and export omission - the exporter
+  compares normalized but always writes the original stored value). A shape's text always
+  draws on top of its own fill (shape first, text immediately after); legacy loaded shapes
+  without a fill stay transparent, and picking "No color" for a fill stores the absent key
 - **Save/Load v2 semantic JSON** (`Whiteboard.save()/load()` + 💾/📂 popup): `save()` exports
   `{v: 2, camera, nodes, edges}` — nodes are rects/circles (`type` = `sysType` for SYS shapes,
   else `rect`/`circle`; `text` collapses to a plain string at default font), edges are lines
   with `from`/`to` pins as `"entityId:handleId"`; coordinates rounded to integers and default
-  styles (white fill / black stroke / width 1) omitted, `"fill": "none"` marking transparent
-  legacy shapes — ALL export-time only, built from the untouched `saveShapes()` snapshot
+  styles (`#FFFFFF` fill / `#202020` stroke / width 1 / solid style - compared via
+  `normalizeColor`, so legacy named defaults also omit; originals always written) omitted,
+  `"fill": "none"` marking transparent legacy shapes — ALL export-time only, built from the
+  untouched `saveShapes()` snapshot
   (byte-stable across exports; rounding must never enter the undo path). `load()` detects
   v2 / v1.1 (`{version, camera, shapes}`) / v1.0 (bare array), validates pins (bad handle →
   dangling line), skips entries without finite geometry, returns `{loaded, skipped}`, restores

@@ -15,6 +15,19 @@ export interface MultiplayerConfig {
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
 
+// Heartbeat: paired, not wall-clock. Each sent ping arms ONE response timer
+// cancelled by any incoming message - in a throttled hidden tab the send and
+// its timeout are delayed identically, so a healthy-but-slow tab can never
+// false-positive (a wall-clock "no activity for 30s" rule would close a
+// perfectly good socket once per minute in a background tab).
+// Exported for tests.
+export const PING_INTERVAL_MS = 10_000;
+export const PING_RESPONSE_TIMEOUT_MS = 15_000;
+// A connect can "succeed" at TCP while the backend is dead (kernel accepts
+// into the listen backlog; proxies accept with the backend down) - bound the
+// wait for init instead of trusting the handshake.
+export const INIT_TIMEOUT_MS = 10_000;
+
 /**
  * Bridges one Whiteboard instance to the multiplayer server: forwards local
  * EventEmitter events over the wire, applies remote messages through the
@@ -27,6 +40,9 @@ export class MultiplayerPlugin {
   private rtcChannel: RTCDataChannel | null = null;
   private isWebRTCReady = false;
   private tcpFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private pingResponseTimer: ReturnType<typeof setTimeout> | null = null;
+  private initTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByUser = false;
@@ -73,17 +89,26 @@ export class MultiplayerPlugin {
       this.ws.onclose = null;
       this.ws.close();
     }
+    this.clearTimers(); // every timer belongs to exactly one socket
     this.closedByUser = false;
     this.ws = new WebSocket(`${this.config.wsUrl}?token=${this.config.jwtToken}`);
 
     this.ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.pingInterval = setInterval(() => this.sendPing(), PING_INTERVAL_MS);
+      // Cleared when init arrives; expiry = TCP-connected-but-dead backend.
+      this.initTimer = setTimeout(() => this.ws?.close(), INIT_TIMEOUT_MS);
       if (this.config.enableWebRTC) {
         this.initWebRTC();
       }
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
+      // ANY frame proves the server is alive - cancel the pending verdict.
+      if (this.pingResponseTimer) {
+        clearTimeout(this.pingResponseTimer);
+        this.pingResponseTimer = null;
+      }
       try {
         this.handleServerMessage(JSON.parse(event.data));
       } catch {
@@ -92,6 +117,7 @@ export class MultiplayerPlugin {
     };
 
     this.ws.onclose = () => {
+      this.clearTimers();
       // Offline safety: no optimistic edits while disconnected.
       this.whiteboard.setReadOnly(true);
       this.scheduleReconnect();
@@ -110,8 +136,29 @@ export class MultiplayerPlugin {
     }
   }
 
+  // Deliberate close on missed ping response: routes into onclose ->
+  // read-only -> reconnect, the single recovery path.
+  private sendPing(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'ping' }));
+    if (!this.pingResponseTimer) {
+      this.pingResponseTimer = setTimeout(() => {
+        this.pingResponseTimer = null;
+        this.ws?.close();
+      }, PING_RESPONSE_TIMEOUT_MS);
+    }
+  }
+
+  private clearTimers(): void {
+    if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
+    if (this.pingResponseTimer) { clearTimeout(this.pingResponseTimer); this.pingResponseTimer = null; }
+    if (this.initTimer) { clearTimeout(this.initTimer); this.initTimer = null; }
+    if (this.tcpFallbackTimer) { clearTimeout(this.tcpFallbackTimer); this.tcpFallbackTimer = null; }
+  }
+
   public disconnect(): void {
     this.closedByUser = true;
+    this.clearTimers();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -175,7 +222,16 @@ export class MultiplayerPlugin {
         this.ws?.close();
         break;
 
+      case 'pong':
+        // Liveness only - the response timer was already cancelled in
+        // onmessage (any frame counts).
+        break;
+
       case 'init': {
+        if (this.initTimer) {
+          clearTimeout(this.initTimer);
+          this.initTimer = null;
+        }
         this.userName = msg.userName;
         this.userColor = msg.userColor;
         // Full state flush: reconcile via loadShapes (this IS the full

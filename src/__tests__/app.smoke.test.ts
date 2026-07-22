@@ -1986,6 +1986,29 @@ describe("properties panel", () => {
     clearSelection();
   });
 
+  it("commits stroke style; solid stores the absent key", () => {
+    const entity = drawRectangle(830, 630, 890, 680);
+    const comp = entity.getComponent(RectangleComponent);
+
+    clickPanel('[data-item="stroke"]');
+    clickPanel('[data-stroke-style="dashed"]');
+    expect(comp.strokeStyle).toBe("dashed");
+
+    // Same-value click is a no-op (no phantom action).
+    const before = whiteboard.saveShapes();
+    clickPanel('[data-stroke-style="dashed"]');
+    expect(whiteboard.saveShapes()).toBe(before);
+
+    clickPanel('[data-stroke-style="solid"]');
+    expect(comp.strokeStyle).toBeUndefined();
+
+    whiteboard.undo();
+    expect(comp.strokeStyle).toBe("dashed");
+    whiteboard.undo();
+    expect(comp.strokeStyle).toBeUndefined();
+    clearSelection();
+  });
+
   it("closes the popover on Escape and on outside mousedown", () => {
     drawRectangle(830, 560, 890, 610);
 

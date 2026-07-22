@@ -9,6 +9,7 @@ import CameraComponent from "./component/CameraComponent";
 import { worldToScreen } from "./camera";
 import { getEntityBounds } from "./shape";
 import { PALETTE, normalizeColor } from "./palette";
+import { StrokeStyle } from "./strokeStyle";
 
 const PANEL_Z_INDEX = '900'; // above the text overlay (500), under the menu (1000)
 const PANEL_GAP = 40;
@@ -121,6 +122,11 @@ export default class PropertiesPanel {
       const swatch = target.closest('[data-color]') as HTMLElement | null;
       if (swatch) {
         this.applyColor(swatch.dataset.prop as 'fill' | 'stroke', swatch.dataset.color!);
+        return;
+      }
+      const styleBtn = target.closest('[data-stroke-style]') as HTMLElement | null;
+      if (styleBtn) {
+        this.applyStrokeStyle(styleBtn.dataset.strokeStyle as 'solid' | StrokeStyle);
         return;
       }
       const segment = target.closest('[data-arrow]') as HTMLElement | null;
@@ -257,10 +263,14 @@ export default class PropertiesPanel {
     if (id === 'stroke') {
       // "No stroke" isn't representable (undefined renders as the default
       // stroke), so the stroke grid excludes the 'none' sentinel.
-      // The Stroke Style section lands with the dashed/dotted milestone.
+      const styleButton = (style: string, title: string) =>
+        `<button data-stroke-style="${style}" title="${title}" style="height:24px;width:32px;padding:0;border:none;border-radius:4px;background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">
+          <span style="display:inline-block;width:18px;border-top:2px ${style} #333;"></span></button>`;
       return `${this.sectionLabel('Stroke Color')}${this.swatchGrid('stroke', false)}` +
         `${this.sectionLabel('Stroke Thickness')}
-        <input type="range" data-slider="stroke-width" min="1" max="4" step="1" style="width:100%;margin:2px 0 0;">`;
+        <input type="range" data-slider="stroke-width" min="1" max="4" step="1" style="width:100%;margin:2px 0 0;">` +
+        `${this.sectionLabel('Stroke Style')}
+        <div style="display:flex;gap:4px;">${styleButton('solid', 'Solid line')}${styleButton('dashed', 'Dashed line')}${styleButton('dotted', 'Dotted line')}</div>`;
     }
     const arrowGlyph = id === 'start' ? '&#8592;' : '&#8594;';
     return `${this.sectionLabel(id === 'start' ? 'Start' : 'End')}
@@ -328,10 +338,10 @@ export default class PropertiesPanel {
     const fill = isLine ? undefined : normalizeColor((comp as RectangleComponent | CircleComponent).fillColor);
     const level = widthToLevel(comp.strokeWidth);
 
-    // Icons depict the current value.
+    // Icons depict the current value - color, width AND style.
     const strokeIcon = this.$panel.querySelector<HTMLElement>('[data-icon="stroke"]');
     if (strokeIcon) {
-      strokeIcon.style.border = `${level}px solid ${stroke ?? '#202020'}`;
+      strokeIcon.style.border = `${level}px ${comp.strokeStyle ?? 'solid'} ${stroke ?? '#202020'}`;
       strokeIcon.style.background = 'transparent';
     }
     const fillIcon = this.$panel.querySelector<HTMLElement>('[data-icon="fill"]');
@@ -358,6 +368,10 @@ export default class PropertiesPanel {
       if (slider && document.activeElement !== slider) {
         slider.value = String(level);
       }
+      const activeStyle = comp.strokeStyle ?? 'solid';
+      this.$popover.querySelectorAll<HTMLElement>('[data-stroke-style]').forEach((btn) => {
+        btn.style.background = btn.dataset.strokeStyle === activeStyle ? ACTIVE_SEGMENT_BG : 'transparent';
+      });
     } else {
       const line = comp as LineComponent;
       const current = (this.openPopover === 'start' ? line.arrowStart : line.arrowEnd) ?? 'none';
@@ -404,6 +418,19 @@ export default class PropertiesPanel {
     if ((comp.strokeWidth ?? 1) === (width ?? 1)) return;
     if (!this.canCommit()) return;
     comp.strokeWidth = width;
+    this.refreshActiveStates(entity);
+    this.onCommit();
+  }
+
+  private applyStrokeStyle(value: 'solid' | StrokeStyle): void {
+    const entity = this.visibleEntity();
+    if (!entity) return;
+    const comp = this.shapeComp(entity);
+    if (!comp) return;
+    if ((comp.strokeStyle ?? 'solid') === value) return;
+    if (!this.canCommit()) return;
+    // 'solid' stores undefined (canonical absent key, same as arrow 'none').
+    comp.strokeStyle = value === 'solid' ? undefined : value;
     this.refreshActiveStates(entity);
     this.onCommit();
   }

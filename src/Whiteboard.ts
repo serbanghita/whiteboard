@@ -348,6 +348,26 @@ export class Whiteboard {
     }
   }
 
+  /**
+   * Strips every remote-driven marker (locks, interpolation targets) from
+   * the whole board. The init flush calls this before applying the payload's
+   * locks: the init payload is the sole authority after a reconnect, and
+   * markers surviving from the dead connection otherwise leave shapes
+   * lock-ghosted (server restarts lose the lock table, and the unlock
+   * broadcasts died with the old socket) or permanently "remote-driven" in
+   * the history guard's eyes.
+   */
+  public clearRemoteArtifacts(): void {
+    for (const entity of this.world.entities.values()) {
+      if (entity.hasComponent(IsLockedComponent)) {
+        entity.removeComponent(IsLockedComponent);
+      }
+      if (entity.hasComponent(TargetTransformComponent)) {
+        entity.removeComponent(TargetTransformComponent);
+      }
+    }
+  }
+
   // Commits an open text edit by blurring its textarea (the blur handler is
   // the commit); used before camera/viewport changes that would leave the
   // overlay's geometry stale.

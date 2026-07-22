@@ -125,9 +125,16 @@ export class MultiplayerPlugin {
         // flush is not locally undoable.
         this.whiteboard.events.pause();
         this.whiteboard.loadShapes(JSON.stringify(msg.shapes ?? []));
+        // Both passes are required: loadShapes reconciles the full board
+        // (removes extinct entities) but only upserts geometry; applyShape
+        // stamps the server-owned zIndex/version components on top.
         for (const shape of msg.shapes ?? []) {
           this.whiteboard.applyShape(shape);
         }
+        // The payload is the sole authority on remote-driven state: drop
+        // stale locks/interpolation targets left over from the previous
+        // connection before applying the current lock set.
+        this.whiteboard.clearRemoteArtifacts();
         for (const [entityId, lock] of Object.entries<any>(msg.locks ?? {})) {
           this.whiteboard.lockShape(entityId, { userName: lock.userName, color: lock.color });
         }

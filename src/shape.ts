@@ -35,7 +35,11 @@ export function hitTestEntity(entity: Entity, x: number, y: number, scale: numbe
   }
   if (entity.hasComponent(LineComponent)) {
     const comp = entity.getComponent(LineComponent);
-    return pointOnLine(x, y, comp.x1, comp.y1, comp.x2, comp.y2, LINE_HIT_TOLERANCE / scale);
+    // Thick lines: the visual edge sits strokeWidth/2 (world units) off the
+    // centerline, so the band is at least that plus a small screen-constant
+    // grace - otherwise a wide line is unclickable at its own edge.
+    const tolerance = Math.max(LINE_HIT_TOLERANCE / scale, (comp.strokeWidth ?? 1) / 2 + 2 / scale);
+    return pointOnLine(x, y, comp.x1, comp.y1, comp.x2, comp.y2, tolerance);
   }
   return false;
 }

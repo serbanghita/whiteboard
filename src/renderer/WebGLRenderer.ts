@@ -132,21 +132,22 @@ export default class WebGLRenderer implements IRenderer {
       this.setColor(color);
       const lineWidth = options?.strokeWidth || 1;
 
-      // Draw four lines for the rectangle outline
-      this.drawLineInternal(x1, y1, x2, y1, lineWidth);
-      this.drawLineInternal(x2, y1, x2, y2, lineWidth);
-      this.drawLineInternal(x2, y2, x1, y2, lineWidth);
-      this.drawLineInternal(x1, y2, x1, y1, lineWidth);
+      // Draw four lines for the rectangle outline, half-width extended so
+      // thick strokes overlap at the corners instead of notching.
+      this.drawLineInternal(x1, y1, x2, y1, lineWidth, lineWidth / 2);
+      this.drawLineInternal(x2, y1, x2, y2, lineWidth, lineWidth / 2);
+      this.drawLineInternal(x2, y2, x1, y2, lineWidth, lineWidth / 2);
+      this.drawLineInternal(x1, y2, x1, y1, lineWidth, lineWidth / 2);
     }
 
     // Default: draw black stroke if no options
     if (!options?.fillColor && !options?.strokeColor) {
       this.setColor([0, 0, 0, 1]);
 
-      this.drawLineInternal(x1, y1, x2, y1, 1);
-      this.drawLineInternal(x2, y1, x2, y2, 1);
-      this.drawLineInternal(x2, y2, x1, y2, 1);
-      this.drawLineInternal(x1, y2, x1, y1, 1);
+      this.drawLineInternal(x1, y1, x2, y1, 1, 0.5);
+      this.drawLineInternal(x2, y1, x2, y2, 1, 0.5);
+      this.drawLineInternal(x2, y2, x1, y2, 1, 0.5);
+      this.drawLineInternal(x1, y2, x1, y1, 1, 0.5);
     }
   }
 
@@ -177,7 +178,8 @@ export default class WebGLRenderer implements IRenderer {
       this.setColor(color);
       const lineWidth = options?.strokeWidth || 1;
 
-      // Line loop for circle outline
+      // Line loop for circle outline; segments half-width extended so thick
+      // rings show no seams between chords.
       for (let i = 0; i < segments; i++) {
         const angle1 = (i / segments) * Math.PI * 2;
         const angle2 = ((i + 1) / segments) * Math.PI * 2;
@@ -186,7 +188,8 @@ export default class WebGLRenderer implements IRenderer {
           cy + Math.sin(angle1) * radius,
           cx + Math.cos(angle2) * radius,
           cy + Math.sin(angle2) * radius,
-          lineWidth
+          lineWidth,
+          lineWidth / 2
         );
       }
     }
@@ -333,7 +336,13 @@ export default class WebGLRenderer implements IRenderer {
     gl.drawArrays(gl.TRIANGLE_FAN, 0, positions.length / 2);
   }
 
-  private drawLineInternal(x1: number, y1: number, x2: number, y2: number, width: number): void {
+  /**
+   * Width-aware quad for one stroke segment. `extend` lengthens the segment
+   * by that many units at BOTH ends along its own direction - joined
+   * segments (rectangle corners, circle rings) pass width/2 so butt ends
+   * overlap instead of notching; overdraw is harmless on opaque strokes.
+   */
+  private drawLineInternal(x1: number, y1: number, x2: number, y2: number, width: number, extend: number = 0): void {
     const gl = this.gl;
 
     // Calculate perpendicular vector for line width
@@ -341,6 +350,13 @@ export default class WebGLRenderer implements IRenderer {
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len === 0) return;
+
+    if (extend > 0) {
+      const ux = (dx / len) * extend;
+      const uy = (dy / len) * extend;
+      x1 -= ux; y1 -= uy;
+      x2 += ux; y2 += uy;
+    }
 
     const nx = (-dy / len) * (width / 2);
     const ny = (dx / len) * (width / 2);

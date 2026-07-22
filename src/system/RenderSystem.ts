@@ -85,14 +85,16 @@ export default class RenderingSystem extends System {
         const comp = entity.getComponent(RectangleComponent);
         this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
           strokeColor: comp.strokeColor || DEFAULT_STROKE,
-          fillColor: comp.fillColor
+          fillColor: comp.fillColor,
+          strokeWidth: comp.strokeWidth
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(CircleComponent)) {
         const comp = entity.getComponent(CircleComponent);
         this.renderer.circle(comp.x, comp.y, comp.radius, {
           strokeColor: comp.strokeColor || DEFAULT_STROKE,
-          fillColor: comp.fillColor
+          fillColor: comp.fillColor,
+          strokeWidth: comp.strokeWidth
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(LineComponent)) {

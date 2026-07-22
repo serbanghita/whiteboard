@@ -26,6 +26,7 @@ import ZIndexComponent from "./component/ZIndexComponent";
 import IsLockedComponent from "./component/IsLockedComponent";
 import VersionComponent from "./component/VersionComponent";
 import { SYSTEM_DESIGN_TOOLS } from "./systemDesign";
+import { DEFAULT_FILL, DEFAULT_STROKE, normalizeColor } from "./palette";
 
 // Systems
 import RenderingSystem from "./system/RenderSystem";
@@ -1202,7 +1203,7 @@ export class Whiteboard {
       if (s.type === 'line') {
         const e: any = { id: s.id, x1: Math.round(s.x1), y1: Math.round(s.y1),
                          x2: Math.round(s.x2), y2: Math.round(s.y2) };
-        if (s.strokeColor && s.strokeColor !== 'black') e.stroke = s.strokeColor;
+        if (s.strokeColor && normalizeColor(s.strokeColor) !== DEFAULT_STROKE) e.stroke = s.strokeColor;
         if (s.strokeWidth && s.strokeWidth !== 1) e.strokeWidth = s.strokeWidth;
         if (s.arrowStart) e.arrowStart = s.arrowStart;
         if (s.arrowEnd) e.arrowEnd = s.arrowEnd;
@@ -1214,11 +1215,13 @@ export class Whiteboard {
         n.x = Math.round(s.x); n.y = Math.round(s.y);
         if (s.type === 'circle') { n.r = Math.round(s.radius); }
         else { n.w = Math.round(s.width); n.h = Math.round(s.height); }
-        // 'none' marks the rare transparent legacy shape; the default white
-        // fill and black stroke are omitted entirely.
+        // 'none' marks the rare transparent legacy shape; the default fill
+        // and stroke are omitted entirely. normalizeColor is compare-only:
+        // the ORIGINAL stored value is written when not a default, so legacy
+        // boards are never silently recolored on export.
         if (s.fillColor === undefined) n.fill = 'none';
-        else if (s.fillColor !== 'white') n.fill = s.fillColor;
-        if (s.strokeColor && s.strokeColor !== 'black') n.stroke = s.strokeColor;
+        else if (normalizeColor(s.fillColor) !== DEFAULT_FILL) n.fill = s.fillColor;
+        if (s.strokeColor && normalizeColor(s.strokeColor) !== DEFAULT_STROKE) n.stroke = s.strokeColor;
         if (s.strokeWidth && s.strokeWidth !== 1) n.strokeWidth = s.strokeWidth;
         if (s.text) {
           const isDefaultFont = s.text.fontSize === 16 && s.text.fontFamily === 'sans-serif' && s.text.color === 'black';
@@ -1273,8 +1276,8 @@ export class Whiteboard {
         // Semantic types are rect-only; a circle node's non-basic type is
         // dropped by loadShapes (CircleComponent has no sysType).
         sysType: (n.type === 'rect' || n.type === 'circle') ? undefined : n.type,
-        fillColor: n.fill === 'none' ? undefined : (n.fill ?? 'white'),
-        strokeColor: n.stroke ?? 'black',
+        fillColor: n.fill === 'none' ? undefined : (n.fill ?? DEFAULT_FILL),
+        strokeColor: n.stroke ?? DEFAULT_STROKE,
         strokeWidth: n.strokeWidth,
         text: typeof n.text === 'string'
           ? { content: n.text, fontSize: 16, fontFamily: 'sans-serif', color: 'black' }
@@ -1289,7 +1292,7 @@ export class Whiteboard {
         return {
           id: e.id, type: 'line',
           x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2,
-          strokeColor: e.stroke ?? 'black', strokeWidth: e.strokeWidth,
+          strokeColor: e.stroke ?? DEFAULT_STROKE, strokeWidth: e.strokeWidth,
           arrowStart: e.arrowStart, arrowEnd: e.arrowEnd,
           attachment: (start || end) ? { start, end } : undefined,
         };

@@ -11,6 +11,7 @@ import TextComponent from '../../component/TextComponent';
 import ZIndexComponent from '../../component/ZIndexComponent';
 import IsLockedComponent from '../../component/IsLockedComponent';
 import { IRenderer } from '../../renderer';
+import { DEFAULT_STROKE } from '../../palette';
 
 /**
  * Unit tests for the real RenderSystem against a real World and a mock
@@ -122,7 +123,7 @@ describe('RenderSystem', () => {
     system.update(0);
 
     expect(calls('rectangle')).toEqual([
-      { method: 'rectangle', args: [75, 85, 50, 30, { strokeColor: 'black', fillColor: undefined }] },
+      { method: 'rectangle', args: [75, 85, 50, 30, { strokeColor: DEFAULT_STROKE, fillColor: undefined }] },
     ]);
     expect(calls('dot')).toHaveLength(0);
   });
@@ -133,10 +134,10 @@ describe('RenderSystem', () => {
     system.update(0);
 
     expect(calls('circle')).toEqual([
-      { method: 'circle', args: [100, 100, 40, { strokeColor: 'black', fillColor: undefined }] },
+      { method: 'circle', args: [100, 100, 40, { strokeColor: DEFAULT_STROKE, fillColor: undefined }] },
     ]);
     expect(calls('line')).toEqual([
-      { method: 'line', args: [10, 20, 60, 80, { strokeColor: 'black', strokeWidth: undefined }] },
+      { method: 'line', args: [10, 20, 60, 80, { strokeColor: DEFAULT_STROKE, strokeWidth: undefined }] },
     ]);
   });
 
@@ -168,7 +169,7 @@ describe('RenderSystem', () => {
     const triangles = calls('triangle');
     expect(triangles).toHaveLength(1);
     // Tip at (x1, y1), pointing away from (x2, y2).
-    expect(triangles[0].args).toEqual([0, 0, 12, -5, 12, 5, { fillColor: 'black' }]);
+    expect(triangles[0].args).toEqual([0, 0, 12, -5, 12, 5, { fillColor: DEFAULT_STROKE }]);
   });
 
   it('draws both arrowheads when both ends are set', () => {
@@ -186,7 +187,7 @@ describe('RenderSystem', () => {
     expect(triangles).toHaveLength(1);
     // effLen = min(12, 10/2) = 5; half-width scales to 5 * 5/12.
     const hw = 5 * 5 / 12;
-    expect(triangles[0].args).toEqual([10, 0, 5, hw, 5, -hw, { fillColor: 'black' }]);
+    expect(triangles[0].args).toEqual([10, 0, 5, hw, 5, -hw, { fillColor: DEFAULT_STROKE }]);
   });
 
   it('hovering draws nothing extra for an unselected shape', () => {

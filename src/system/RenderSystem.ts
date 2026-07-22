@@ -13,6 +13,7 @@ import TextTextureCache from "../textRaster";
 import ZIndexComponent from "../component/ZIndexComponent";
 import IsLockedComponent from "../component/IsLockedComponent";
 import { TextureHandle } from "../renderer/IRenderer";
+import { DEFAULT_STROKE } from "../palette";
 
 // Selection visuals: a tight blue bounding box around the selected shapes,
 // with gray ring resize handles at its corners. A single selected line gets
@@ -83,20 +84,20 @@ export default class RenderingSystem extends System {
       if (entity.hasComponent(RectangleComponent)) {
         const comp = entity.getComponent(RectangleComponent);
         this.renderer.rectangle(comp.x, comp.y, comp.width, comp.height, {
-          strokeColor: comp.strokeColor || "black",
+          strokeColor: comp.strokeColor || DEFAULT_STROKE,
           fillColor: comp.fillColor
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(CircleComponent)) {
         const comp = entity.getComponent(CircleComponent);
         this.renderer.circle(comp.x, comp.y, comp.radius, {
-          strokeColor: comp.strokeColor || "black",
+          strokeColor: comp.strokeColor || DEFAULT_STROKE,
           fillColor: comp.fillColor
         });
         this.drawEntityText(entity, scale, editingEntityId, selectionComp, liveTextIds);
       } else if (entity.hasComponent(LineComponent)) {
         const comp = entity.getComponent(LineComponent);
-        const stroke = comp.strokeColor || "black";
+        const stroke = comp.strokeColor || DEFAULT_STROKE;
         this.renderer.line(comp.x1, comp.y1, comp.x2, comp.y2, {
           strokeColor: stroke,
           strokeWidth: comp.strokeWidth

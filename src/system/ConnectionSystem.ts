@@ -9,6 +9,7 @@ import ToolStateComponent from "../component/ToolStateComponent";
 import { connectionSnapTarget, handleAtPoint } from "../handles";
 import { autoSelectFreshShape } from "../autoSelect";
 import { getCameraScale } from "../camera";
+import { DEFAULT_STROKE } from "../palette";
 
 // A connection drag released without snapping and shorter than this is a
 // stray click on the handle, not a line (parity with LineDrawSystem).
@@ -83,7 +84,7 @@ export default class ConnectionSystem extends System {
           y1: handle.y,
           x2: mouseComp.x,
           y2: mouseComp.y,
-          strokeColor: 'black'
+          strokeColor: DEFAULT_STROKE
         });
         previewEntity.addComponent(LineAttachmentComponent, {
           start: { entityId: source.id, handleId: handle.id as ConnectionHandleId },

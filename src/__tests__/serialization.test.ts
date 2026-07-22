@@ -15,6 +15,7 @@ import RectangleComponent from "../component/RectangleComponent";
 import CircleComponent from "../component/CircleComponent";
 import LineComponent from "../component/LineComponent";
 import LineAttachmentComponent from "../component/LineAttachmentComponent";
+import { DEFAULT_FILL, DEFAULT_STROKE } from "../palette";
 import CameraComponent from "../component/CameraComponent";
 import TextComponent from "../component/TextComponent";
 import IsRendered from "../component/IsRendered";
@@ -270,6 +271,37 @@ describe("roundtrip and undo stability", () => {
     clearBoard();
     whiteboard.load(first);
     expect(whiteboard.save()).toBe(first);
+  });
+
+  it("legacy 'white'/'black' stamped shapes export lean and roundtrip byte-identically", () => {
+    // addCircle/addAttachedLine stamp the legacy NAMED defaults; the exporter
+    // must still omit them (normalizeColor compare) and the reloaded board -
+    // whose omitted keys now default to the canonical hexes - must re-export
+    // byte-identically.
+    addCircle("circle-legacy", 200, 200, 30);
+    addAttachedLine("line-legacy", 10, 10, 90, 90, null, null);
+
+    const first = JSON.parse(whiteboard.save());
+    expect(first.nodes[0]).not.toHaveProperty("fill");
+    expect(first.nodes[0]).not.toHaveProperty("stroke");
+    expect(first.edges[0]).not.toHaveProperty("stroke");
+
+    const exported = whiteboard.save();
+    clearBoard();
+    whiteboard.load(exported);
+    expect(whiteboard.save()).toBe(exported);
+  });
+
+  it("v2 import defaults missing fill/stroke to the canonical hexes", () => {
+    whiteboard.load(JSON.stringify({
+      v: 2,
+      nodes: [{ id: "r1", type: "rect", x: 0, y: 0, w: 50, h: 40 }],
+      edges: [{ id: "l1", x1: 0, y1: 0, x2: 10, y2: 10 }],
+    }));
+    const rect = world.getEntity("r1")!.getComponent(RectangleComponent);
+    expect(rect.fillColor).toBe(DEFAULT_FILL);
+    expect(rect.strokeColor).toBe(DEFAULT_STROKE);
+    expect(world.getEntity("l1")!.getComponent(LineComponent).strokeColor).toBe(DEFAULT_STROKE);
   });
 
   it("saveShapes() is byte-identical before and after an export", () => {

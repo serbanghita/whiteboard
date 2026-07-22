@@ -17,6 +17,7 @@ import LineComponent from "../component/LineComponent";
 import ToolStateComponent from "../component/ToolStateComponent";
 import SelectionRectangleComponent from "../component/SelectionRectangleComponent";
 import LineAttachmentComponent from "../component/LineAttachmentComponent";
+import { DEFAULT_FILL, DEFAULT_STROKE } from "../palette";
 import CameraComponent from "../component/CameraComponent";
 import TextComponent from "../component/TextComponent";
 import { applyWheel, screenToWorld, worldToScreen } from "../camera";
@@ -1891,10 +1892,10 @@ describe("properties panel", () => {
   it("changes fill/stroke via swatches, one undo step each, no-op on re-click", () => {
     const entity = drawRectangle(700, 500, 780, 560);
     const comp = entity.getComponent(RectangleComponent);
-    // The new draw defaults.
-    expect(comp.fillColor).toBe("white");
-    expect(comp.strokeColor).toBe("black");
-    // The named defaults light up their hex swatches.
+    // The canonical hex draw defaults.
+    expect(comp.fillColor).toBe(DEFAULT_FILL);
+    expect(comp.strokeColor).toBe(DEFAULT_STROKE);
+    // The defaults light up their swatches (case-insensitive).
     const whiteFill = panel().querySelector('[data-prop="fill"][data-color="#ffffff"]') as HTMLElement;
     expect(whiteFill.style.border).toContain("2px");
 
@@ -1906,10 +1907,10 @@ describe("properties panel", () => {
     expect(comp.fillColor).toBe("#1e88e5");
 
     whiteboard.undo();
-    expect(comp.fillColor).toBe("white");
+    expect(comp.fillColor).toBe(DEFAULT_FILL);
     expect(comp.strokeColor).toBe("#e53935");
     whiteboard.undo();
-    expect(comp.strokeColor).toBe("black");
+    expect(comp.strokeColor).toBe(DEFAULT_STROKE);
 
     clearSelection();
   });

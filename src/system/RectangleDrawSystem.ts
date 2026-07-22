@@ -7,6 +7,7 @@ import TextComponent from "../component/TextComponent";
 import IsRendered from "../component/IsRendered";
 import { autoSelectFreshShape } from "../autoSelect";
 import { isSystemDesignTool, systemDesignLabel } from "../systemDesign";
+import { DEFAULT_FILL, DEFAULT_STROKE } from "../palette";
 
 const MIN_RECTANGLE_SIZE = 5;
 
@@ -64,8 +65,8 @@ export default class RectangleDrawSystem extends System {
           y: mouseComp.pressY,
           width: 1,
           height: 1,
-          fillColor: 'white',
-          strokeColor: 'black'
+          fillColor: DEFAULT_FILL,
+          strokeColor: DEFAULT_STROKE
         });
         previewEntity.addComponent(IsRendered);
         toolState.previewEntityId = entityId;

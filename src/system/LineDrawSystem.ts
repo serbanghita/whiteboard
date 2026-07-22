@@ -4,6 +4,7 @@ import MouseComponent from "../component/MouseComponent";
 import LineComponent from "../component/LineComponent";
 import IsRendered from "../component/IsRendered";
 import { autoSelectFreshShape } from "../autoSelect";
+import { DEFAULT_STROKE } from "../palette";
 
 const MIN_LINE_LENGTH = 5;
 
@@ -57,7 +58,7 @@ export default class LineDrawSystem extends System {
           y1: mouseComp.pressY,
           x2: mouseComp.pressX,
           y2: mouseComp.pressY,
-          strokeColor: 'black'
+          strokeColor: DEFAULT_STROKE
         });
         previewEntity.addComponent(IsRendered);
         toolState.previewEntityId = entityId;

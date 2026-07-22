@@ -5,6 +5,7 @@ import IsMousePressed from "../component/IsMousePressed";
 import CircleComponent from "../component/CircleComponent";
 import IsRendered from "../component/IsRendered";
 import { autoSelectFreshShape } from "../autoSelect";
+import { DEFAULT_FILL, DEFAULT_STROKE } from "../palette";
 
 const MIN_CIRCLE_RADIUS = 3;
 
@@ -62,8 +63,8 @@ export default class CircleDrawSystem extends System {
           x: mouseComp.pressX,
           y: mouseComp.pressY,
           radius: 1,
-          fillColor: 'white',
-          strokeColor: 'black'
+          fillColor: DEFAULT_FILL,
+          strokeColor: DEFAULT_STROKE
         });
         previewEntity.addComponent(IsRendered);
         toolState.previewEntityId = entityId;
